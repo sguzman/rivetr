@@ -38,11 +38,10 @@ impl RivetApp {
                 if ui
                     .add_enabled(!self.import_busy, egui::Button::new("Import ICS"))
                     .clicked()
+                    && let Some(path) =
+                        rfd::FileDialog::new().add_filter("ICS", &["ics"]).pick_file()
                 {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("ICS", &["ics"]).pick_file()
-                    {
-                        self.import_ics(path);
-                    }
+                    self.import_ics(path);
                 }
                 ui.separator();
                 let calendars = self.ui_state.imported_calendars.clone();

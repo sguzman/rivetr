@@ -295,22 +295,26 @@ fn write_table<W: Write>(
     }
   }
 
-  for idx in 0..column_count {
+  for (header, width) in headers
+    .iter()
+    .zip(widths.iter())
+    .take(column_count)
+  {
     write!(
       writer,
       "{:width$} ",
-      headers[idx],
-      width = widths[idx]
+      header,
+      width = *width
     )?;
   }
   writeln!(writer)?;
 
-  for idx in 0..column_count {
+  for width in widths.iter().take(column_count) {
     write!(
       writer,
       "{:-<width$} ",
       "",
-      width = widths[idx]
+      width = *width
     )?;
   }
   writeln!(writer)?;

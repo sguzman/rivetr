@@ -52,10 +52,10 @@ pub fn parse_task_datetime(raw: &str, timezone: Tz) -> Option<DateTime<Utc>> {
     if let Ok(parsed) = DateTime::parse_from_rfc3339(raw) {
         return Some(parsed.with_timezone(&Utc));
     }
-    if raw.ends_with('Z') {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%SZ") {
-            return Some(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc));
-        }
+    if raw.ends_with('Z')
+        && let Ok(naive) = NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%SZ")
+    {
+        return Some(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc));
     }
     if let Ok(naive) = NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%S") {
         return local_naive_to_utc(timezone, naive);

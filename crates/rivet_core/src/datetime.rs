@@ -72,13 +72,12 @@ pub fn format_project_date(
 fn resolve_project_timezone() -> Tz {
   if let Ok(raw) =
     std::env::var(TIMEZONE_ENV_VAR)
-  {
-    if let Some(tz) = parse_timezone(
+    && let Some(tz) = parse_timezone(
       &raw,
       TIMEZONE_ENV_VAR
-    ) {
-      return tz;
-    }
+    )
+  {
+    return tz;
   }
 
   if let Some(path) =

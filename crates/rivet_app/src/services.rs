@@ -521,15 +521,15 @@ fn parse_ics_dtstart(property: &Property, timezone: Tz) -> Option<DateTime<Utc>>
     if let Ok(parsed) = DateTime::parse_from_rfc3339(raw) {
         return Some(parsed.with_timezone(&Utc));
     }
-    if raw.ends_with('Z') {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%SZ") {
-            return Some(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc));
-        }
+    if raw.ends_with('Z')
+        && let Ok(naive) = NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%SZ")
+    {
+        return Some(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc));
     }
-    if raw.len() == 8 {
-        if let Ok(date) = NaiveDate::parse_from_str(raw, "%Y%m%d") {
-            return local_naive_to_utc(property_timezone(property, timezone), date.and_hms_opt(0, 0, 0)?);
-        }
+    if raw.len() == 8
+        && let Ok(date) = NaiveDate::parse_from_str(raw, "%Y%m%d")
+    {
+        return local_naive_to_utc(property_timezone(property, timezone), date.and_hms_opt(0, 0, 0)?);
     }
     if let Ok(naive) = NaiveDateTime::parse_from_str(raw, "%Y%m%dT%H%M%S") {
         return local_naive_to_utc(property_timezone(property, timezone), naive);
@@ -542,12 +542,11 @@ fn property_timezone(property: &Property, fallback: Tz) -> Tz {
         return fallback;
     };
     for (key, values) in params {
-        if key == "TZID" {
-            if let Some(value) = values.first() {
-                if let Ok(tz) = value.trim().parse::<Tz>() {
-                    return tz;
-                }
-            }
+        if key == "TZID"
+            && let Some(value) = values.first()
+            && let Ok(tz) = value.trim().parse::<Tz>()
+        {
+            return tz;
         }
     }
     fallback

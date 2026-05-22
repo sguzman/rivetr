@@ -79,16 +79,15 @@ impl RivetApp {
                     ui.separator();
                     ui.label("Rename active");
                     ui.text_edit_singleline(&mut self.board_editor.rename_name);
-                    if ui.button("Rename").clicked() {
-                        if let Some(board) = self
+                    if ui.button("Rename").clicked()
+                        && let Some(board) = self
                             .ui_state
                             .kanban_boards
                             .iter_mut()
                             .find(|board| board.id == active_id)
-                        {
-                            board.name = self.board_editor.rename_name.trim().to_string();
-                            self.mark_ui_dirty();
-                        }
+                    {
+                        board.name = self.board_editor.rename_name.trim().to_string();
+                        self.mark_ui_dirty();
                     }
                     if ui.button("Delete Board").clicked() && self.ui_state.kanban_boards.len() > 1 {
                         self.ui_state.kanban_boards.retain(|board| board.id != active_id);

@@ -206,14 +206,13 @@ fn parse_import_items(
     );
   }
 
-  if trimmed.starts_with('{') {
-    if let Ok(item) =
+  if trimmed.starts_with('{')
+    && let Ok(item) =
       serde_json::from_str::<ImportTask>(
         trimmed
       )
-    {
-      return Ok(vec![item]);
-    }
+  {
+    return Ok(vec![item]);
   }
 
   let mut out = Vec::new();
@@ -580,4 +579,3 @@ fn command_uses_filter(
       | "delete"
   ) || is_report_command(cfg, command)
 }
-

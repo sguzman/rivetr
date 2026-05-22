@@ -189,10 +189,10 @@ impl RivetApp {
     }
 
     fn apply_selected_action(&mut self, action: BulkAction) {
-        if self.selected_tasks.is_empty() {
-            if let Some(uuid) = self.selected_task {
-                self.selected_tasks.insert(uuid);
-            }
+        if self.selected_tasks.is_empty()
+            && let Some(uuid) = self.selected_task
+        {
+            self.selected_tasks.insert(uuid);
         }
         self.bulk_action(action);
     }
@@ -614,14 +614,14 @@ fn current_period_entries(
 
 fn parse_color(raw: &str) -> Color32 {
     let raw = raw.trim();
-    if let Some(hex) = raw.strip_prefix('#') {
-        if hex.len() == 6 {
-            let red = u8::from_str_radix(&hex[0..2], 16).ok();
-            let green = u8::from_str_radix(&hex[2..4], 16).ok();
-            let blue = u8::from_str_radix(&hex[4..6], 16).ok();
-            if let (Some(red), Some(green), Some(blue)) = (red, green, blue) {
-                return Color32::from_rgb(red, green, blue);
-            }
+    if let Some(hex) = raw.strip_prefix('#')
+        && hex.len() == 6
+    {
+        let red = u8::from_str_radix(&hex[0..2], 16).ok();
+        let green = u8::from_str_radix(&hex[2..4], 16).ok();
+        let blue = u8::from_str_radix(&hex[4..6], 16).ok();
+        if let (Some(red), Some(green), Some(blue)) = (red, green, blue) {
+            return Color32::from_rgb(red, green, blue);
         }
     }
     Color32::from_rgb(127, 134, 145)
