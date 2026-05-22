@@ -371,22 +371,32 @@ fn render_year_view(
     now_utc: chrono::DateTime<Utc>,
     navigate_to_entry: &mut Option<CalendarEntry>,
 ) {
+    let row_width = ui.available_width();
+    let card_width = ((row_width - (PERIOD_CARD_GAP * 2.0)) / 3.0).max(160.0);
     for row in year_months(focus).chunks(3) {
-        ui.columns(3, |columns| {
+        ui.horizontal(|ui| {
             for (index, month) in row.iter().enumerate() {
-                let month_entries = entries_for_month(entries, *month, timezone);
-                let width = (columns[index].available_width() - PERIOD_CARD_GAP).max(160.0);
-                period_card(
-                    &mut columns[index],
-                    Vec2::new(width, YEAR_CARD_HEIGHT),
-                    month.format("%B").to_string(),
-                    month_entries,
-                    *month,
-                    today,
-                    config,
-                    now_utc,
-                    navigate_to_entry,
+                ui.allocate_ui_with_layout(
+                    Vec2::new(card_width, YEAR_CARD_HEIGHT),
+                    Layout::top_down(Align::Min),
+                    |ui| {
+                        let month_entries = entries_for_month(entries, *month, timezone);
+                        period_card(
+                            ui,
+                            Vec2::new(card_width, YEAR_CARD_HEIGHT),
+                            month.format("%B").to_string(),
+                            month_entries,
+                            *month,
+                            today,
+                            config,
+                            now_utc,
+                            navigate_to_entry,
+                        );
+                    },
                 );
+                if index < row.len() - 1 {
+                    ui.add_space(PERIOD_CARD_GAP);
+                }
             }
         });
         ui.add_space(12.0);
@@ -403,21 +413,32 @@ fn render_quarter_view(
     now_utc: chrono::DateTime<Utc>,
     navigate_to_entry: &mut Option<CalendarEntry>,
 ) {
-    ui.columns(3, |columns| {
-        for (index, month) in quarter_months(focus).iter().enumerate() {
-            let month_entries = entries_for_month(entries, *month, timezone);
-            let width = (columns[index].available_width() - PERIOD_CARD_GAP).max(160.0);
-            period_card(
-                &mut columns[index],
-                Vec2::new(width, QUARTER_CARD_HEIGHT),
-                month.format("%B").to_string(),
-                month_entries,
-                *month,
-                today,
-                config,
-                now_utc,
-                navigate_to_entry,
+    let row_width = ui.available_width();
+    let card_width = ((row_width - (PERIOD_CARD_GAP * 2.0)) / 3.0).max(160.0);
+    ui.horizontal(|ui| {
+        let months = quarter_months(focus);
+        for (index, month) in months.iter().enumerate() {
+            ui.allocate_ui_with_layout(
+                Vec2::new(card_width, QUARTER_CARD_HEIGHT),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    let month_entries = entries_for_month(entries, *month, timezone);
+                    period_card(
+                        ui,
+                        Vec2::new(card_width, QUARTER_CARD_HEIGHT),
+                        month.format("%B").to_string(),
+                        month_entries,
+                        *month,
+                        today,
+                        config,
+                        now_utc,
+                        navigate_to_entry,
+                    );
+                },
             );
+            if index < months.len() - 1 {
+                ui.add_space(PERIOD_CARD_GAP);
+            }
         }
     });
 }
@@ -621,6 +642,7 @@ fn render_day_view(
 
     ui.label(RichText::new(focus.format("%A %B %e, %Y").to_string()).strong().size(20.0));
     ui.add_space(8.0);
+    let full_height = ui.available_height().max(420.0);
     let target_width = ui.available_width().min(DAY_VIEW_MAX_WIDTH);
     ui.horizontal(|ui| {
         let pad = ((ui.available_width() - target_width) * 0.5).max(0.0);
@@ -628,11 +650,13 @@ fn render_day_view(
             ui.add_space(pad);
         }
         ui.allocate_ui_with_layout(
-            Vec2::new(target_width, ui.available_height()),
+            Vec2::new(target_width, full_height),
             Layout::top_down(Align::Min),
             |ui| {
+                ui.set_min_height(full_height);
                 egui::ScrollArea::vertical()
-                    .max_height(ui.available_height().max(320.0))
+                    .max_height(full_height)
+                    .auto_shrink([false, false])
                     .show(ui, |ui| {
                         for hour in config.day_view_hour_start..=config.day_view_hour_end {
                             egui::Frame::new()
