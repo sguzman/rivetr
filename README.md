@@ -24,7 +24,8 @@ This repo now contains:
 cargo run
 ```
 
-The app requires a desktop session.
+The app requires a desktop session. If you launch it in a headless Linux shell,
+Rivetr now returns a clearer error instead of only the raw `winit` message.
 
 - Linux: `winit` will fail in a headless shell if `DISPLAY`, `WAYLAND_DISPLAY`,
   and `WAYLAND_SOCKET` are all unset.
