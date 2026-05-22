@@ -1,6 +1,29 @@
 [package]
 name = "rivetr"
 version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[workspace]
+resolver = "2"
+members = [
+  ".",
+  "crates/rivet_core",
+  "crates/rivet_app",
+]
+
+[workspace.package]
 edition = "2024"
+license = "MIT"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
 
 [dependencies]
+rivet_app = { path = "crates/rivet_app" }
+
+[lints]
+workspace = true

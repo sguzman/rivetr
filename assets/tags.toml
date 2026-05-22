@@ -1,0 +1,251 @@
+version = 1
+
+# Controlled vocabulary for faceted key:value tags.
+# Example task tags: area:software stage:active type:port ctx:computer
+
+[[keys]]
+id = "area"
+label = "Area"
+selection = "single"
+color = "#4B7BEC"
+values = [
+  "software",
+  "research",
+  "learning",
+  "library",
+  "admin",
+  "family",
+  "farm",
+  "home",
+  "health",
+  "finance",
+  "social",
+  "travel",
+]
+
+[[keys]]
+id = "stage"
+label = "Stage"
+selection = "single"
+color = "#8854D0"
+values = [
+  "inbox",
+  "idea",
+  "planned",
+  "active",
+  "waiting",
+  "paused",
+  "maintenance",
+  "done",
+  "archived",
+]
+
+[[keys]]
+id = "kanban"
+label = "Kanban Lane"
+selection = "single"
+color = "#4A90E2"
+values = ["todo", "working", "finished"]
+
+[[keys]]
+id = "board"
+label = "Kanban Board"
+selection = "single"
+allow_custom_values = true
+color = "#3B7A57"
+values = []
+
+[[keys]]
+id = "cal_source"
+label = "Calendar Source"
+selection = "single"
+allow_custom_values = true
+color = "#E67E22"
+values = []
+
+[[keys]]
+id = "cal_event"
+label = "Calendar Event"
+selection = "single"
+allow_custom_values = true
+color = "#16A085"
+values = []
+
+[[keys]]
+id = "cal_color"
+label = "Calendar Color"
+selection = "single"
+allow_custom_values = true
+color = "#C0392B"
+values = []
+
+[[keys]]
+id = "type"
+label = "Type"
+selection = "single"
+color = "#20BF6B"
+values = [
+  "create",
+  "port",
+  "fix",
+  "refactor",
+  "test",
+  "docs",
+  "release",
+  "ops",
+  "study",
+  "practice",
+  "read",
+  "write",
+  "note",
+  "extract",
+  "experiment",
+  "analyze",
+  "chore",
+  "errand",
+  "appointment",
+  "communication",
+  "purchase",
+  "maintenance",
+  "planning",
+  "review",
+  "organize",
+  "ingest",
+]
+
+[[keys]]
+id = "ctx"
+label = "Context"
+selection = "multi"
+color = "#2D98DA"
+values = [
+  "computer",
+  "phone",
+  "home",
+  "farm",
+  "outside",
+  "car",
+  "office",
+  "online",
+  "offline",
+  "call",
+  "email",
+]
+
+[[keys]]
+id = "effort"
+label = "Effort"
+selection = "single"
+color = "#FA8231"
+values = ["2m", "5m", "15m", "30m", "60m", "90m", "deep"]
+
+[[keys]]
+id = "energy"
+label = "Energy"
+selection = "single"
+color = "#3867D6"
+values = ["low", "medium", "high"]
+
+[[keys]]
+id = "priority"
+label = "Priority"
+selection = "single"
+color = "#EB3B5A"
+values = ["low", "normal", "high", "urgent"]
+
+[[keys]]
+id = "time"
+label = "Time Horizon"
+selection = "single"
+color = "#F7B731"
+values = [
+  "today",
+  "tomorrow",
+  "this-week",
+  "next-week",
+  "this-month",
+  "someday",
+]
+
+[[keys]]
+id = "artifact"
+label = "Artifact"
+selection = "multi"
+color = "#A55EEA"
+values = ["book", "paper", "pdf", "dataset", "video", "code", "document", "receipt"]
+
+[[keys]]
+id = "readstate"
+label = "Read State"
+selection = "single"
+color = "#0FB9B1"
+values = ["queue", "reading", "paused", "finished", "abandoned"]
+
+[[keys]]
+id = "scope"
+label = "Scope"
+selection = "single"
+color = "#45AAF2"
+values = ["bug", "feature", "chore", "techdebt", "security"]
+
+[[keys]]
+id = "risk"
+label = "Risk"
+selection = "single"
+color = "#FC5C65"
+values = ["low", "medium", "high"]
+
+[[keys]]
+id = "intake"
+label = "Library Intake"
+selection = "single"
+color = "#26DE81"
+values = [
+  "to-get",
+  "downloaded",
+  "to-import",
+  "imported",
+  "needs-metadata",
+  "tagged",
+  "archived",
+]
+
+[[keys]]
+id = "tool"
+label = "Tool"
+selection = "multi"
+allow_custom_values = true
+color = "#3867D6"
+values = ["calibre", "docker", "nix", "git", "scanner", "whisper", "obsidian", "mathematica"]
+
+[[keys]]
+id = "topic"
+label = "Topic"
+selection = "multi"
+allow_custom_values = true
+color = "#8854D0"
+values = ["biology", "chemistry", "physics", "math", "cryptography", "soil", "greenhouse", "corn-yields"]
+
+[[keys]]
+id = "person"
+label = "Person"
+selection = "multi"
+allow_custom_values = true
+color = "#A55EEA"
+values = ["mom", "family", "friend", "doctor", "vendor", "client"]
+
+[[keys]]
+id = "place"
+label = "Place"
+selection = "multi"
+allow_custom_values = true
+color = "#20BF6B"
+values = ["home", "farm", "store", "bank", "clinic", "library"]
+
+[[keys]]
+id = "repo"
+label = "Repo"
+selection = "single"
+allow_custom_values = true
+color = "#4B7BEC"
+values = ["anki-card-sync", "sentence-inspector", "photoprism-stack"]

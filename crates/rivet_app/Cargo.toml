@@ -1,0 +1,29 @@
+[package]
+name = "rivet_app"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.101"
+chrono = { version = "0.4.43", features = ["serde", "clock"] }
+chrono-tz = "0.10.4"
+dirs = "6.0.0"
+eframe = { version = "0.33.0", default-features = true }
+egui = "0.33.0"
+egui_extras = { version = "0.33.0", features = ["chrono"] }
+ical = "0.11.0"
+parking_lot = "0.12.5"
+rfd = "0.15.4"
+rivet_core = { path = "../rivet_core" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+toml = "1.0.2"
+tracing = "0.1.44"
+uuid = { version = "1.21.0", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3.25.0"
+
+[lints]
+workspace = true

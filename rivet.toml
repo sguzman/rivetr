@@ -1,0 +1,283 @@
+# Rivet Unified Configuration
+# ------------------------------------------------------------
+# This is the single top-level configuration file for Rivet.
+#
+# IMPORTANT:
+# - Sections marked "DOCUMENTATION-ONLY" describe hardcoded/default
+#   behavior currently assumed by the codebase. They are included so
+#   every policy/default is visible in one place.
+# - Sections marked "ACTIVE" are currently read at runtime.
+#
+# Precedence for some settings may still include environment overrides.
+# See inline notes per section.
+
+version = 1
+
+# Legacy compatibility:
+# - Top-level `mode` is still accepted.
+# - Prefer [app].mode going forward.
+mode = "dev"
+
+[app] # ACTIVE (src-tauri)
+# Runtime mode:
+# - dev: write backend logs to files under [logging].directory
+# - prod: log to stderr/stdout only
+mode = "dev" # dev | prod
+
+[logging] # ACTIVE (src-tauri) + DOCUMENTATION-ONLY fields
+# Directory is resolved relative to project root/current working dir.
+directory = "logs"
+# Prefix for generated log files:
+#   <file_prefix>-YYYYMMDD-HHMMSS.log
+file_prefix = "rivet-gui"
+
+# DOCUMENTATION-ONLY: current compiled fallback filter in src-tauri.
+default_filter = "info,rivet_gui_tauri=debug,rivet_core=debug"
+# DOCUMENTATION-ONLY: in dev mode, logs are written to file with ANSI off.
+write_to_file_in_dev = true
+
+[time] # ACTIVE (rivet-core datetime + UI calendar fallback)
+# Canonical project timezone.
+# Env override still exists:
+# - RIVET_TIMEZONE
+timezone = "America/Mexico_City"
+
+[calendar] # ACTIVE (UI calendar)
+version = 1
+# Optional calendar-specific timezone override.
+# If empty/missing, [time].timezone is used.
+timezone = "America/Mexico_City"
+
+[calendar.policies] # ACTIVE
+# monday | sunday
+week_start = "sunday"
+# Upper rendering cap for marker/dot drawing in aggregated views.
+red_dot_limit = 5000
+# Number of tasks shown in "Tasks in Current Period" panel.
+task_list_limit = 200
+# Forward horizon (days) for future task-list windows.
+task_list_window_days = 365
+
+[calendar.visibility] # ACTIVE
+pending = true
+waiting = true
+completed = true
+deleted = true
+
+[calendar.day_view] # ACTIVE
+hour_start = 0
+hour_end = 23
+
+[calendar.toggles] # ACTIVE
+de_emphasize_past_periods = true
+filter_tasks_before_now = true
+hide_past_markers = true
+
+[calendar.navigation] # DOCUMENTATION-ONLY
+# Current behavior assumptions in UI:
+year_month_click_target = "month"
+quarter_month_click_target = "month"
+month_week_shortcut_target = "week"
+
+[notifications.due] # ACTIVE (UI settings + defaults)
+enabled = true
+pre_notify_enabled = false
+pre_notify_minutes = 15
+pre_notify_minutes_max = 43200
+scan_interval_seconds = 30
+
+[notifications.desktop] # DOCUMENTATION-ONLY
+# Browser permission states used by UI:
+permission_states = ["default", "granted", "denied", "unsupported"]
+
+[tasks.defaults] # DOCUMENTATION-ONLY
+title_required = true
+description_optional = true
+project_optional = true
+due_optional = true
+default_status = "pending"
+
+[tasks.recurrence] # DOCUMENTATION-ONLY
+# Recurrence controls currently available in Add/Edit Task modal.
+patterns = ["none", "daily", "weekly", "months", "monthly", "yearly"]
+weekday_keys = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+month_keys = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+
+[tasks.recurrence.tags] # DOCUMENTATION-ONLY
+# Internal tag keys used for recurrence encoding:
+recur = "recur"
+recur_time = "recur_time"
+recur_days = "recur_days"
+recur_months = "recur_months"
+recur_day = "recur_day"
+
+[kanban] # DOCUMENTATION-ONLY (runtime assumptions/default generators)
+default_board_name = "Main"
+default_lane = "todo"
+
+# Board color generation:
+default_board_color = "hsl(212 74% 54%)"
+board_color_hue_step = 47
+board_color_saturation_percent = 74
+board_color_lightness_percent = 54
+board_color_search_limit = 512
+
+# External calendar color generation for unique source colors:
+external_calendar_color_hue_step = 53
+external_calendar_color_hue_offset = 12
+external_calendar_color_saturation = 0.72
+external_calendar_color_lightness = 0.52
+external_calendar_color_search_limit = 512
+
+[kanban.tags] # DOCUMENTATION-ONLY
+lane_key = "kanban"
+board_key = "board"
+
+[external_calendar] # DOCUMENTATION-ONLY (major backend/UI policies)
+# Default source values:
+default_refresh_minutes = 30
+default_enabled = true
+default_read_only = true
+default_show_reminders = true
+default_offline_support = true
+
+# Imported ICS snapshot behavior:
+imported_file_refresh_minutes = 0
+imported_file_sync_strategy = "reimport_required"
+imported_file_recurrence_tags_enabled = false
+
+# Supported location schemes:
+location_schemes = ["https", "http", "webcal", "webcals", "file"]
+webcal_rewrite_https = true
+webcal_rewrite_http_fallback = true
+webcals_rewrite_https = true
+
+# HTTP sync:
+sync_timeout_seconds = 30
+request_accept = "text/calendar, text/plain, */*;q=0.8"
+request_accept_language = "en-US,en;q=0.9"
+request_cache_control = "no-cache"
+request_pragma = "no-cache"
+special_referer = "https://www.bls.gov/schedule/news_release/"
+
+# Refresh menu values currently exposed in UI:
+refresh_menu_minutes = [0, 5, 15, 30, 60, 360, 1440]
+
+# Event mapping defaults:
+project_prefix = "calendar"
+fallback_title = "Calendar Event"
+all_day_due_time = "00:00:00"
+dedupe_and_delete_missing_events = true
+
+[external_calendar.tags] # DOCUMENTATION-ONLY
+source_key = "cal_source"
+event_key = "cal_event"
+color_key = "cal_color"
+
+[external_calendar.http_profiles.thunderbird] # DOCUMENTATION-ONLY
+user_agent = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Thunderbird/128.0"
+
+[external_calendar.http_profiles.browser] # DOCUMENTATION-ONLY
+user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+
+[ui] # DOCUMENTATION-ONLY
+default_theme = "day"
+default_workspace_tab = "tasks"
+default_calendar_view = "month"
+calendar_unaffiliated_color = "#7f8691"
+
+[ui.features] # ACTIVE
+contacts = true
+dictionary = true
+map = true
+
+[map] # ACTIVE (UI map workspace)
+enabled = true
+martin_base_url = "http://127.0.0.1:3002"
+default_source = ""
+default_center = [-102.2, 28.9]
+default_zoom = 3.6
+min_zoom = 2.0
+max_zoom = 13.0
+max_parallel_image_requests = 12
+cancel_pending_tile_requests_while_zooming = true
+hide_when_unavailable = false
+
+[ui.theme] # ACTIVE
+mode = "day"
+follow_system = false
+
+[ui.window] # DOCUMENTATION-ONLY
+# Current custom top bar styling assumptions:
+chrome_height_px = 24
+workspace_tabs_sticky = true
+main_layout = "left-nav | content | right-stack"
+
+[ui.modal] # DOCUMENTATION-ONLY
+backdrop_enabled = true
+backdrop_alpha = 0.55
+max_height = "calc(100vh - 32px)"
+small_width = "min(380px, 100%)"
+medium_width = "min(560px, 100%)"
+default_width = "min(760px, 100%)"
+
+[ui.storage.local_keys] # DOCUMENTATION-ONLY
+theme = "rivet.theme"
+workspace_tab = "rivet.workspace_tab"
+calendar_view = "rivet.calendar.view"
+external_calendars = "rivet.external_calendars"
+due_notification_settings = "rivet.notifications.due.settings"
+due_notification_sent = "rivet.notifications.due.sent"
+kanban_boards = "rivet.kanban.boards"
+kanban_active_board = "rivet.kanban.active_board"
+
+[runtime.linux.env_defaults] # DOCUMENTATION-ONLY (currently set in src-tauri)
+gdk_backend = "wayland"
+winit_unix_backend = "wayland"
+webkit_disable_dmabuf_renderer = "1"
+
+[runtime.signals] # DOCUMENTATION-ONLY
+handle_sigint = true
+handle_sigterm = true
+shutdown_exit_code = 0
+
+[runtime.icons] # DOCUMENTATION-ONLY
+primary_window_icon_candidates = [
+  "crates/rivet-gui/src-tauri/icons/mascot-square.png",
+  "crates/rivet-gui/src-tauri/icons/icon.png",
+  "crates/rivet-gui/ui/assets/icons/favicon-32x32.png",
+]
+linux_desktop_registration_enabled = true
+
+[runtime.paths] # DOCUMENTATION-ONLY
+default_task_datastore_rel = "crates/rivet-gui/src-tauri/.rivet_gui_data"
+default_logs_rel = "logs"
+
+[integration.tags_schema] # DOCUMENTATION-ONLY
+source_file = "crates/rivet-gui/ui/assets/tags.toml"
+schema_version = 1
+
+[dictionary] # ACTIVE (dictionary tab + postgres-backed lookup)
+enabled = true
+default_language = "en"
+max_results = 100
+search_mode = "prefix" # exact | prefix | fuzzy | fts
+
+[dictionary.postgres] # ACTIVE
+host = "127.0.0.1"
+port = 5432
+user = "admin"
+password = "admin"
+database = "data"
+schema = "dictionary"
+sslmode = "disable"
+connect_timeout_secs = 10
+max_connection_retries = 5
+retry_backoff_ms = 750
+
+[integration.legacy] # DOCUMENTATION-ONLY
+# These are still tolerated as migration compatibility:
+legacy_runtime_file = "rivet-app.toml"
+legacy_time_file = "rivet-time.toml"
+legacy_runtime_env = "RIVET_APP_CONFIG"
+legacy_time_env = "RIVET_TIME_CONFIG"
