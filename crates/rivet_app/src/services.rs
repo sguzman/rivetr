@@ -228,69 +228,7 @@ impl TaskService {
         };
         let events = parse_ics_events(&ics_text, &source, self.timezone)?;
         let remote_events = events.len();
-
-        let all_tasks = self.list_all()?;
-        let mut existing_by_uid = BTreeMap::<String, TaskDto>::new();
-        for task in all_tasks {
-            if !task_has_tag_value(&task.tags, CAL_SOURCE_TAG_KEY, &normalize_tag_value(&source.id)) {
-                continue;
-            }
-            if task.status == TaskStatus::Deleted {
-                continue;
-            }
-            if let Some(uid) = first_tag_value(&task.tags, CAL_EVENT_TAG_KEY) {
-                existing_by_uid.insert(uid, task);
-            }
-        }
-
-        let mut created = 0;
-        let mut updated = 0;
-        let mut deleted = 0;
-        let mut seen_uids = BTreeSet::new();
-
-        for event in events {
-            seen_uids.insert(event.uid.clone());
-            match existing_by_uid.get(&event.uid) {
-                Some(existing) if matches!(existing.status, TaskStatus::Pending | TaskStatus::Waiting) => {
-                    let update = TaskUpdateArgs {
-                        uuid: existing.uuid,
-                        patch: TaskPatch {
-                            title: Some(event.title.clone()),
-                            description: Some(event.description.clone()),
-                            project: Some(Some(format!("calendar/{}", source.name))),
-                            tags: Some(merge_calendar_tags(&existing.tags, &event.tags)),
-                            due: Some(Some(event.due_rfc3339.clone())),
-                            wait: Some(None),
-                            scheduled: Some(None),
-                            ..TaskPatch::default()
-                        },
-                    };
-                    let _ = self.update(update)?;
-                    updated += 1;
-                }
-                Some(_) => {}
-                None => {
-                    let _ = self.add(TaskCreate {
-                        title: event.title.clone(),
-                        description: event.description.clone(),
-                        project: Some(format!("calendar/{}", source.name)),
-                        tags: event.tags.clone(),
-                        priority: None,
-                        due: Some(event.due_rfc3339.clone()),
-                        wait: None,
-                        scheduled: None,
-                    })?;
-                    created += 1;
-                }
-            }
-        }
-
-        for (uid, task) in existing_by_uid {
-            if !seen_uids.contains(&uid) {
-                self.delete(task.uuid)?;
-                deleted += 1;
-            }
-        }
+        let (created, updated, deleted) = self.apply_imported_events(&source, events)?;
 
         Ok(IcsImportResult {
             source,
@@ -299,6 +237,97 @@ impl TaskService {
             deleted,
             remote_events,
         })
+    }
+
+    fn apply_imported_events(
+        &self,
+        source: &ImportedCalendarSource,
+        events: Vec<ExternalCalendarEvent>,
+    ) -> anyhow::Result<(usize, usize, usize)> {
+        let now = Utc::now();
+        let store = self.store.lock();
+        let mut pending = store.load_pending()?;
+        let mut completed = store.load_completed()?;
+        let source_id = normalize_tag_value(&source.id);
+
+        let mut pending_by_uid = BTreeMap::<String, usize>::new();
+        let mut completed_by_uid = BTreeMap::<String, usize>::new();
+
+        for (index, task) in pending.iter().enumerate() {
+            if !task_has_tag_value(&task.tags, CAL_SOURCE_TAG_KEY, &source_id) || task.status == Status::Deleted {
+                continue;
+            }
+            if let Some(uid) = first_tag_value(&task.tags, CAL_EVENT_TAG_KEY) {
+                pending_by_uid.insert(uid, index);
+            }
+        }
+        for (index, task) in completed.iter().enumerate() {
+            if let Some(tags) = Some(&task.tags).filter(|tags| task_has_tag_value(tags, CAL_SOURCE_TAG_KEY, &source_id)) {
+                let _ = tags;
+                if let Some(uid) = first_tag_value(&task.tags, CAL_EVENT_TAG_KEY) {
+                    completed_by_uid.insert(uid, index);
+                }
+            }
+        }
+
+        let mut next_id = store.next_id(&pending);
+        let mut created = 0;
+        let mut updated = 0;
+        let mut deleted = 0;
+        let mut seen_uids = BTreeSet::new();
+
+        for event in events {
+            seen_uids.insert(event.uid.clone());
+            if let Some(&index) = pending_by_uid.get(&event.uid) {
+                let task = &mut pending[index];
+                update_calendar_task(task, &event, source, now, &self.tag_schema)?;
+                updated += 1;
+                continue;
+            }
+            if completed_by_uid.contains_key(&event.uid) {
+                continue;
+            }
+
+            let task = build_calendar_task(event, source, now, next_id, &self.tag_schema)?;
+            pending_by_uid.insert(
+                first_tag_value(&task.tags, CAL_EVENT_TAG_KEY).unwrap_or_else(|| "missing".to_string()),
+                pending.len(),
+            );
+            pending.push(task);
+            next_id += 1;
+            created += 1;
+        }
+
+        for task in &mut pending {
+            if task.status == Status::Deleted || !task_has_tag_value(&task.tags, CAL_SOURCE_TAG_KEY, &source_id) {
+                continue;
+            }
+            let Some(uid) = first_tag_value(&task.tags, CAL_EVENT_TAG_KEY) else {
+                continue;
+            };
+            if !seen_uids.contains(&uid) {
+                task.status = Status::Deleted;
+                task.modified = now;
+                deleted += 1;
+            }
+        }
+
+        let before_completed = completed.len();
+        completed.retain(|task| {
+            if !task_has_tag_value(&task.tags, CAL_SOURCE_TAG_KEY, &source_id) {
+                return true;
+            }
+            let Some(uid) = first_tag_value(&task.tags, CAL_EVENT_TAG_KEY) else {
+                return true;
+            };
+            seen_uids.contains(&uid)
+        });
+        deleted += before_completed.saturating_sub(completed.len());
+
+        pending.sort_by_key(|entry| entry.id.unwrap_or(u64::MAX));
+        store.save_pending(&pending)?;
+        store.save_completed(&completed)?;
+        Ok((created, updated, deleted))
     }
 }
 
@@ -454,6 +483,54 @@ fn merge_calendar_tags(existing: &[String], managed: &[String]) -> Vec<String> {
         push_tag_unique(&mut tags, tag.clone());
     }
     tags
+}
+
+fn build_calendar_task(
+    event: ExternalCalendarEvent,
+    source: &ImportedCalendarSource,
+    now: DateTime<Utc>,
+    next_id: u64,
+    tag_schema: &TagSchema,
+) -> anyhow::Result<Task> {
+    let due = DateTime::parse_from_rfc3339(&event.due_rfc3339)
+        .map(|value| value.with_timezone(&Utc))
+        .with_context(|| format!("invalid imported event datetime {}", event.due_rfc3339))?;
+    let mut task = Task::new_pending(event.title, now, next_id);
+    set_task_detail_description(&mut task, &event.description);
+    task.project = Some(format!("calendar/{}", source.name));
+    task.tags = event.tags;
+    ensure_default_kanban_lane_tag(&mut task.tags, tag_schema);
+    task.priority = None;
+    task.due = Some(due);
+    task.wait = None;
+    task.scheduled = None;
+    Ok(task)
+}
+
+fn update_calendar_task(
+    task: &mut Task,
+    event: &ExternalCalendarEvent,
+    source: &ImportedCalendarSource,
+    now: DateTime<Utc>,
+    tag_schema: &TagSchema,
+) -> anyhow::Result<()> {
+    let due = DateTime::parse_from_rfc3339(&event.due_rfc3339)
+        .map(|value| value.with_timezone(&Utc))
+        .with_context(|| format!("invalid imported event datetime {}", event.due_rfc3339))?;
+    task.description = event.title.clone();
+    set_task_detail_description(task, &event.description);
+    task.project = Some(format!("calendar/{}", source.name));
+    task.tags = merge_calendar_tags(&task.tags, &event.tags);
+    ensure_default_kanban_lane_tag(&mut task.tags, tag_schema);
+    task.priority = None;
+    task.due = Some(due);
+    task.wait = None;
+    task.scheduled = None;
+    if task.status == Status::Waiting {
+        task.status = Status::Pending;
+    }
+    task.modified = now;
+    Ok(())
 }
 
 fn parse_ics_events(
@@ -668,5 +745,25 @@ mod tests {
         .expect("write delete case");
         let third = service.import_ics(&path, "Sample", "#ff0000").expect("third import");
         assert_eq!(third.deleted, 1);
+    }
+
+    #[test]
+    fn imports_large_bundled_sports_calendar() {
+        let service = service();
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("tmp")
+            .join("bundles")
+            .join("us-pro-sports-all")
+            .join("us-pro-sports-2026.ics");
+        if !path.is_file() {
+            return;
+        }
+        let result = service
+            .import_ics(&path, "US Pro Sports 2026", "#3366ff")
+            .expect("import large bundled calendar");
+        assert!(result.remote_events >= 5_000);
+        assert!(result.created >= 5_000);
     }
 }
