@@ -8,11 +8,13 @@ use super::{
 };
 use crate::types::{CalendarEntry, CalendarMarkerKind, CalendarView, ThemeMode};
 
-const LEFT_PANEL_WIDTH: f32 = 340.0;
+const LEFT_PANEL_WIDTH: f32 = 300.0;
 const RIGHT_PANEL_WIDTH: f32 = 312.0;
 const YEAR_CARD_HEIGHT: f32 = 118.0;
 const QUARTER_CARD_HEIGHT: f32 = 132.0;
 const MONTH_CELL_HEIGHT: f32 = 118.0;
+const PERIOD_CARD_GAP: f32 = 12.0;
+const DAY_VIEW_MAX_WIDTH: f32 = 760.0;
 
 impl RivetApp {
     pub(super) fn ui_calendar(&mut self, ctx: &egui::Context) {
@@ -223,9 +225,12 @@ fn render_left_panel(app: &mut RivetApp, ui: &mut egui::Ui, focus: chrono::Naive
         });
     ui.add_space(10.0);
 
+    let legend_height = 110.0;
+    let remaining_height = (ui.available_height() - legend_height - 10.0).max(220.0);
     egui::Frame::group(ui.style())
         .inner_margin(12.0)
         .show(ui, |ui| {
+            ui.set_min_height(remaining_height);
             ui.heading("Imported Calendars");
             if ui
                 .add_enabled(!app.import_busy, egui::Button::new("Import ICS"))
@@ -235,40 +240,43 @@ fn render_left_panel(app: &mut RivetApp, ui: &mut egui::Ui, focus: chrono::Naive
                 app.import_ics(path);
             }
             ui.add_space(8.0);
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                if app.ui_state.imported_calendars.is_empty() {
-                    ui.label(RichText::new("No imported calendars yet.").weak());
-                }
-                let calendars = app.ui_state.imported_calendars.clone();
-                for source in calendars {
-                    egui::Frame::group(ui.style())
-                        .fill(ui.visuals().faint_bg_color)
-                        .corner_radius(CornerRadius::same(12))
-                        .inner_margin(10.0)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                paint_marker(ui, parse_color(&source.color), CalendarMarkerKind::ExternalCalendar, 10.0);
-                                ui.label(RichText::new(&source.name).strong());
+            egui::ScrollArea::vertical()
+                .max_height((ui.available_height() - 4.0).max(160.0))
+                .show(ui, |ui| {
+                    if app.ui_state.imported_calendars.is_empty() {
+                        ui.label(RichText::new("No imported calendars yet.").weak());
+                    }
+                    let calendars = app.ui_state.imported_calendars.clone();
+                    for source in calendars {
+                        egui::Frame::group(ui.style())
+                            .fill(ui.visuals().faint_bg_color)
+                            .corner_radius(CornerRadius::same(12))
+                            .inner_margin(10.0)
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    paint_marker(ui, parse_color(&source.color), CalendarMarkerKind::ExternalCalendar, 10.0);
+                                    ui.label(RichText::new(&source.name).strong());
+                                });
+                                ui.small(source.path.display().to_string());
+                                ui.small(format!("Imported {}", source.last_imported_at));
+                                ui.add_space(4.0);
+                                if ui
+                                    .add_enabled(!app.import_busy, egui::Button::new("Re-import"))
+                                    .clicked()
+                                {
+                                    app.reimport_calendar(source.clone());
+                                }
                             });
-                            ui.small(source.path.display().to_string());
-                            ui.small(format!("Imported {}", source.last_imported_at));
-                            ui.add_space(4.0);
-                            if ui
-                                .add_enabled(!app.import_busy, egui::Button::new("Re-import"))
-                                .clicked()
-                            {
-                                app.reimport_calendar(source.clone());
-                            }
-                        });
-                    ui.add_space(6.0);
-                }
-            });
+                        ui.add_space(6.0);
+                    }
+                });
         });
 
     ui.add_space(10.0);
     egui::Frame::group(ui.style())
         .inner_margin(12.0)
         .show(ui, |ui| {
+            ui.set_min_height(legend_height);
             ui.label(RichText::new("Marker Legend").strong());
             legend_row(ui, Color32::from_rgb(214, 69, 69), CalendarMarkerKind::ExternalCalendar, "External calendar");
             legend_row(ui, Color32::from_rgb(47, 125, 246), CalendarMarkerKind::KanbanBoard, "Kanban board task");
@@ -367,7 +375,7 @@ fn render_year_view(
         ui.columns(3, |columns| {
             for (index, month) in row.iter().enumerate() {
                 let month_entries = entries_for_month(entries, *month, timezone);
-                let width = columns[index].available_width();
+                let width = (columns[index].available_width() - PERIOD_CARD_GAP).max(160.0);
                 period_card(
                     &mut columns[index],
                     Vec2::new(width, YEAR_CARD_HEIGHT),
@@ -398,7 +406,7 @@ fn render_quarter_view(
     ui.columns(3, |columns| {
         for (index, month) in quarter_months(focus).iter().enumerate() {
             let month_entries = entries_for_month(entries, *month, timezone);
-            let width = columns[index].available_width();
+            let width = (columns[index].available_width() - PERIOD_CARD_GAP).max(160.0);
             period_card(
                 &mut columns[index],
                 Vec2::new(width, QUARTER_CARD_HEIGHT),
@@ -613,64 +621,79 @@ fn render_day_view(
 
     ui.label(RichText::new(focus.format("%A %B %e, %Y").to_string()).strong().size(20.0));
     ui.add_space(8.0);
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        for hour in config.day_view_hour_start..=config.day_view_hour_end {
-            egui::Frame::new()
-                .fill(if is_today && now_local.hour() == u32::from(hour) {
-                    Color32::from_rgba_unmultiplied(47, 125, 246, 18)
-                } else {
-                    ui.visuals().faint_bg_color
-                })
-                .corner_radius(CornerRadius::same(10))
-                .inner_margin(8.0)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.monospace(format!("{hour:02}:00"));
-                        ui.separator();
-                        ui.vertical(|ui| {
-                            let hour_entries = day_entries
-                                .iter()
-                                .filter(|entry| entry.due_utc.with_timezone(&timezone).hour() == u32::from(hour))
-                                .collect::<Vec<_>>();
-                            if hour_entries.is_empty() {
-                                ui.small(RichText::new("No items").weak());
-                            } else {
-                                for entry in hour_entries {
-                                    let color = if should_show_entry_in_list(entry, config, now_utc) {
-                                        parse_color(&entry.color)
-                                    } else {
-                                        Color32::from_gray(145)
-                                    };
-                                    let clicked = ui
-                                        .horizontal(|ui| {
-                                            paint_marker(ui, color, entry.marker_kind, 9.0);
-                                            ui.add(
-                                                egui::Label::new(
-                                                    RichText::new(format!(
-                                                        "{}  {}",
-                                                        entry.due_utc.with_timezone(&timezone).format("%H:%M"),
-                                                        entry.label
-                                                    ))
-                                                    .color(color),
-                                                )
-                                                .sense(Sense::click()),
-                                            )
-                                            .clicked()
-                                        })
-                                        .inner;
-                                    if clicked {
-                                        *navigate_to_entry = Some(entry.clone());
-                                    }
-                                    if !entry.task.description.is_empty() {
-                                        ui.small(truncate(&entry.task.description, 90));
-                                    }
-                                }
-                            }
-                        });
-                    });
-                });
-            ui.add_space(6.0);
+    let target_width = ui.available_width().min(DAY_VIEW_MAX_WIDTH);
+    ui.horizontal(|ui| {
+        let pad = ((ui.available_width() - target_width) * 0.5).max(0.0);
+        if pad > 0.0 {
+            ui.add_space(pad);
         }
+        ui.allocate_ui_with_layout(
+            Vec2::new(target_width, ui.available_height()),
+            Layout::top_down(Align::Min),
+            |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(ui.available_height().max(320.0))
+                    .show(ui, |ui| {
+                        for hour in config.day_view_hour_start..=config.day_view_hour_end {
+                            egui::Frame::new()
+                                .fill(if is_today && now_local.hour() == u32::from(hour) {
+                                    Color32::from_rgba_unmultiplied(47, 125, 246, 18)
+                                } else {
+                                    ui.visuals().faint_bg_color
+                                })
+                                .corner_radius(CornerRadius::same(10))
+                                .inner_margin(8.0)
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.monospace(format!("{hour:02}:00"));
+                                        ui.separator();
+                                        ui.vertical(|ui| {
+                                            let hour_entries = day_entries
+                                                .iter()
+                                                .filter(|entry| entry.due_utc.with_timezone(&timezone).hour() == u32::from(hour))
+                                                .collect::<Vec<_>>();
+                                            if hour_entries.is_empty() {
+                                                ui.small(RichText::new("No items").weak());
+                                            } else {
+                                                for entry in hour_entries {
+                                                    let color = if should_show_entry_in_list(entry, config, now_utc) {
+                                                        parse_color(&entry.color)
+                                                    } else {
+                                                        Color32::from_gray(145)
+                                                    };
+                                                    let clicked = ui
+                                                        .horizontal(|ui| {
+                                                            paint_marker(ui, color, entry.marker_kind, 9.0);
+                                                            ui.add(
+                                                                egui::Label::new(
+                                                                    RichText::new(format!(
+                                                                        "{}  {}",
+                                                                        entry.due_utc.with_timezone(&timezone).format("%H:%M"),
+                                                                        entry.label
+                                                                    ))
+                                                                    .color(color),
+                                                                )
+                                                                .sense(Sense::click()),
+                                                            )
+                                                            .clicked()
+                                                        })
+                                                        .inner;
+                                                    if clicked {
+                                                        *navigate_to_entry = Some(entry.clone());
+                                                    }
+                                                    if !entry.task.description.is_empty() {
+                                                        ui.small(truncate(&entry.task.description, 90));
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    });
+                                });
+                            ui.add_space(6.0);
+                        }
+                    });
+            },
+        );
     });
 }
 
