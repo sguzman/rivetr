@@ -223,7 +223,7 @@ impl TaskService {
             ),
             name: source_name.trim().to_string(),
             color: color.trim().to_string(),
-            path: path.display().to_string(),
+            path: path.to_path_buf(),
             last_imported_at: Utc::now().to_rfc3339(),
         };
         let events = parse_ics_events(&ics_text, &source, self.timezone)?;
@@ -634,5 +634,36 @@ mod tests {
         .expect("write");
         let result = service.import_ics(&path, "Sample", "#ff0000").expect("import");
         assert_eq!(result.created, 1);
+    }
+
+    #[test]
+    fn reimport_ics_updates_and_deletes_existing_calendar_tasks() {
+        let service = service();
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("sample.ics");
+        fs::write(
+            &path,
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:abc\nSUMMARY:Meet\nDTSTART:20260522T120000Z\nEND:VEVENT\nEND:VCALENDAR\n",
+        )
+        .expect("write initial");
+        let first = service.import_ics(&path, "Sample", "#ff0000").expect("first import");
+        assert_eq!(first.created, 1);
+
+        fs::write(
+            &path,
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:abc\nSUMMARY:Updated Meet\nDTSTART:20260523T120000Z\nEND:VEVENT\nBEGIN:VEVENT\nUID:def\nSUMMARY:New\nDTSTART:20260524T120000Z\nEND:VEVENT\nEND:VCALENDAR\n",
+        )
+        .expect("write second");
+        let second = service.import_ics(&path, "Sample", "#ff0000").expect("second import");
+        assert_eq!(second.updated, 1);
+        assert_eq!(second.created, 1);
+
+        fs::write(
+            &path,
+            "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:def\nSUMMARY:New\nDTSTART:20260524T120000Z\nEND:VEVENT\nEND:VCALENDAR\n",
+        )
+        .expect("write delete case");
+        let third = service.import_ics(&path, "Sample", "#ff0000").expect("third import");
+        assert_eq!(third.deleted, 1);
     }
 }

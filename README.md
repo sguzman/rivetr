@@ -24,8 +24,11 @@ This repo now contains:
 cargo run
 ```
 
-The app requires a desktop session. In a headless shell, `winit` will fail if
-`DISPLAY`, `WAYLAND_DISPLAY`, and `WAYLAND_SOCKET` are all unset.
+The app requires a desktop session.
+
+- Linux: `winit` will fail in a headless shell if `DISPLAY`, `WAYLAND_DISPLAY`,
+  and `WAYLAND_SOCKET` are all unset.
+- Windows 11 x64: the intended development target is `x86_64-pc-windows-msvc`.
 
 ## Data locations
 
@@ -37,4 +40,18 @@ The app requires a desktop session. In a headless shell, `winit` will fail if
 ```bash
 cargo check --workspace
 cargo test --workspace
+```
+
+## Windows 11 x64 check
+
+Install the target if needed:
+
+```bash
+rustup target add x86_64-pc-windows-msvc
+```
+
+Then verify the workspace:
+
+```bash
+cargo check --target x86_64-pc-windows-msvc
 ```

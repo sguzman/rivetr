@@ -1,7 +1,10 @@
+mod kanban;
+mod keyboard;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{Datelike, Local, NaiveDate, Utc};
-use eframe::egui::{self, Color32, RichText, Sense, Vec2};
+use eframe::egui::{self, Color32, RichText, Vec2};
 use eframe::{App, CreationContext, NativeOptions};
 use egui_extras::{Column, TableBuilder};
 use uuid::Uuid;
@@ -19,6 +22,11 @@ use crate::types::{
     StatusFilter, TagSchema, TaskCreate, TaskDto, TaskFilters, TaskPatch, TaskPriority,
     TaskStatus, TaskUpdateArgs, ThemeMode, WorkspaceTab,
 };
+use self::kanban::{apply_drop_to_tags, board_from_task_tags, lane_from_task_tags, KanbanDragPayload};
+use self::keyboard::{move_index, resolve_shortcut, ShortcutAction};
+
+const TASK_SEARCH_ID: &str = "tasks.search";
+const KANBAN_SEARCH_ID: &str = "kanban.search";
 
 pub fn run() -> Result<(), String> {
     let native_options = NativeOptions {
@@ -49,8 +57,11 @@ struct RivetApp {
     selected_tasks: BTreeSet<Uuid>,
     task_editor: Option<TaskEditor>,
     board_editor: BoardEditor,
+    bulk_project_input: String,
+    bulk_tag_input: String,
     last_message: Option<String>,
     last_error: Option<String>,
+    show_shortcuts: bool,
     dirty_ui_state: bool,
 }
 
@@ -103,8 +114,11 @@ impl RivetApp {
                 create_name: String::new(),
                 rename_name,
             },
+            bulk_project_input: String::new(),
+            bulk_tag_input: String::new(),
             last_message: None,
             last_error: None,
+            show_shortcuts: false,
             dirty_ui_state: false,
         })
     }
@@ -154,6 +168,61 @@ impl RivetApp {
         self.dirty_ui_state = true;
     }
 
+    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
+        let editor_open = self.task_editor.is_some();
+        let wants_keyboard_input = ctx.wants_keyboard_input();
+        let Some(action) = resolve_shortcut(ctx, editor_open, wants_keyboard_input) else {
+            return;
+        };
+
+        match action {
+            ShortcutAction::ToggleHelp => {
+                self.show_shortcuts = !self.show_shortcuts;
+            }
+            ShortcutAction::OpenNewTask => self.open_new_task(self.ui_state.active_board_id.clone()),
+            ShortcutAction::SaveEditor => self.save_task_editor(),
+            ShortcutAction::CancelEditor => self.task_editor = None,
+            ShortcutAction::SwitchTab(tab) => {
+                self.ui_state.active_tab = tab;
+                self.mark_ui_dirty();
+            }
+            ShortcutAction::FocusSearch => {
+                let id = match self.ui_state.active_tab {
+                    WorkspaceTab::Tasks => egui::Id::new(TASK_SEARCH_ID),
+                    WorkspaceTab::Kanban => egui::Id::new(KANBAN_SEARCH_ID),
+                    WorkspaceTab::Calendar => return,
+                };
+                ctx.memory_mut(|memory| memory.request_focus(id));
+            }
+            ShortcutAction::MoveSelection(delta) => {
+                if matches!(self.ui_state.active_tab, WorkspaceTab::Tasks) {
+                    let visible = self
+                        .visible_tasks(&self.ui_state.task_filters)
+                        .into_iter()
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    self.move_selection(&visible, delta);
+                }
+            }
+            ShortcutAction::DoneSelected => self.apply_selected_action(BulkAction::Done),
+            ShortcutAction::UncompleteSelected => self.apply_selected_action(BulkAction::Undone),
+            ShortcutAction::DeleteSelected => self.apply_selected_action(BulkAction::Delete),
+        }
+    }
+
+    fn move_selection(&mut self, visible: &[TaskDto], delta: i32) {
+        let current_index = self
+            .selected_task
+            .and_then(|selected| visible.iter().position(|task| task.uuid == selected));
+        let Some(next_index) = move_index(current_index, visible.len(), delta) else {
+            return;
+        };
+        let task = &visible[next_index];
+        self.selected_task = Some(task.uuid);
+        self.selected_tasks.clear();
+        self.selected_tasks.insert(task.uuid);
+    }
+
     fn visible_tasks<'a>(&'a self, filters: &TaskFilters) -> Vec<&'a TaskDto> {
         self.tasks
             .iter()
@@ -164,6 +233,15 @@ impl RivetApp {
     fn selected_task_ref(&self) -> Option<&TaskDto> {
         let selected = self.selected_task?;
         self.tasks.iter().find(|task| task.uuid == selected)
+    }
+
+    fn apply_selected_action(&mut self, action: BulkAction) {
+        if self.selected_tasks.is_empty() {
+            if let Some(uuid) = self.selected_task {
+                self.selected_tasks.insert(uuid);
+            }
+        }
+        self.bulk_action(action);
     }
 
     fn open_new_task(&mut self, board_id: Option<String>) {
@@ -265,12 +343,19 @@ impl RivetApp {
                     .update(TaskUpdateArgs {
                         uuid,
                         patch: TaskPatch {
-                            project: Some(Some(project.clone())),
+                            project: Some(if project.trim().is_empty() {
+                                None
+                            } else {
+                                Some(project.trim().to_string())
+                            }),
                             ..TaskPatch::default()
                         },
                     })
                     .map(|_| ()),
                 BulkAction::ApplyTag(ref tag) => {
+                    if tag.trim().is_empty() {
+                        continue;
+                    }
                     let mut tags = task.tags.clone();
                     for token in split_tags(tag) {
                         if !tags.iter().any(|existing| existing == &token) {
@@ -329,21 +414,57 @@ impl RivetApp {
     fn reimport_calendar(&mut self, source: ImportedCalendarSource) {
         match self
             .service
-            .import_ics(std::path::Path::new(&source.path), &source.name, &source.color)
+            .import_ics(&source.path, &source.name, &source.color)
         {
             Ok(result) => self.finish_import(result),
             Err(error) => self.set_error(error),
         }
     }
 
+    fn move_task_to_kanban_target(
+        &mut self,
+        task_id: Uuid,
+        board_id: Option<&str>,
+        lane: Option<&str>,
+    ) {
+        let Some(task) = self.tasks.iter().find(|task| task.uuid == task_id).cloned() else {
+            return;
+        };
+        let mut tags = task.tags.clone();
+        apply_drop_to_tags(&mut tags, board_id, lane);
+        let result = self.service.update(TaskUpdateArgs {
+            uuid: task_id,
+            patch: TaskPatch {
+                tags: Some(tags),
+                ..TaskPatch::default()
+            },
+        });
+        match result {
+            Ok(updated) => {
+                self.selected_task = Some(updated.uuid);
+                self.selected_tasks.insert(updated.uuid);
+                self.refresh_tasks();
+                self.set_message(format!("Moved {}.", updated.title));
+            }
+            Err(error) => self.set_error(error),
+        }
+    }
+
     fn ui_shell(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("top_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Rivetr");
+            ui.add_space(6.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.heading(RichText::new("Rivetr").size(24.0).strong());
                 ui.separator();
                 for tab in WorkspaceTab::ALL {
                     let selected = self.ui_state.active_tab == tab;
-                    if ui.selectable_label(selected, tab.label()).clicked() {
+                    if ui
+                        .add_sized(
+                            [84.0, 28.0],
+                            egui::Button::new(tab.label()).selected(selected),
+                        )
+                        .clicked()
+                    {
                         self.ui_state.active_tab = tab;
                         self.mark_ui_dirty();
                     }
@@ -354,6 +475,9 @@ impl RivetApp {
                 }
                 if ui.button("Refresh").clicked() {
                     self.refresh_tasks();
+                }
+                if ui.button("Shortcuts").clicked() {
+                    self.show_shortcuts = true;
                 }
                 if ui.button("Theme").clicked() {
                     self.ui_state.theme_mode = match self.ui_state.theme_mode {
@@ -370,14 +494,48 @@ impl RivetApp {
                     ui.small(format!("Config: {}", path.display()));
                 }
             });
+            ui.add_space(4.0);
 
             if let Some(message) = self.last_message.as_deref() {
-                ui.colored_label(Color32::from_rgb(96, 196, 96), message);
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(23, 61, 39))
+                    .corner_radius(8.0)
+                    .inner_margin(8.0)
+                    .show(ui, |ui| {
+                        ui.colored_label(Color32::from_rgb(164, 233, 184), message);
+                    });
             }
             if let Some(error) = self.last_error.as_deref() {
-                ui.colored_label(Color32::from_rgb(255, 120, 120), error);
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(77, 31, 31))
+                    .corner_radius(8.0)
+                    .inner_margin(8.0)
+                    .show(ui, |ui| {
+                        ui.colored_label(Color32::from_rgb(255, 173, 173), error);
+                    });
             }
         });
+
+        if self.show_shortcuts {
+            let mut open = self.show_shortcuts;
+            egui::Window::new("Shortcuts")
+                .open(&mut open)
+                .resizable(false)
+                .default_width(420.0)
+                .show(ctx, |ui| {
+                    shortcut_row(ui, primary_modifier_label(), "N", "New task");
+                    shortcut_row(ui, primary_modifier_label(), "F", "Focus search");
+                    shortcut_row(ui, primary_modifier_label(), "1 / 2 / 3", "Switch workspace");
+                    shortcut_row(ui, "", "↑/↓ or J/K", "Move task selection");
+                    shortcut_row(ui, "", "X", "Complete selected task");
+                    shortcut_row(ui, "Shift +", "X", "Uncomplete selected task");
+                    shortcut_row(ui, "", "Backspace", "Delete selected task");
+                    shortcut_row(ui, primary_modifier_label(), "S", "Save task editor");
+                    shortcut_row(ui, "", "Esc", "Cancel task editor");
+                    shortcut_row(ui, "", "F1 or Shift+/", "Toggle help");
+                });
+            self.show_shortcuts = open;
+        }
     }
 
     fn ui_tasks(&mut self, ctx: &egui::Context) {
@@ -393,31 +551,38 @@ impl RivetApp {
             .resizable(true)
             .default_width(360.0)
             .show(ctx, |ui| {
-                ui.heading("Details");
+                ui.heading("Task Details");
                 if let Some(task) = self.selected_task_ref().cloned() {
-                    ui.label(RichText::new(task.title.clone()).strong().size(20.0));
-                    if !task.description.is_empty() {
-                        ui.label(task.description.clone());
-                    }
-                    if let Some(project) = task.project.as_deref() {
-                        ui.label(format!("Project: {project}"));
-                    }
-                    ui.label(format!("Status: {}", task.status.label()));
-                    if let Some(priority) = task.priority {
-                        ui.label(format!("Priority: {}", priority.label()));
-                    }
-                    if let Some(due) = task.due.as_deref() {
-                        ui.label(format!("Due: {due}"));
-                    }
-                    if !task.tags.is_empty() {
-                        ui.separator();
-                        ui.label("Tags");
-                        for tag in &task.tags {
-                            ui.label(tag);
+                    egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
+                        ui.label(RichText::new(task.title.clone()).strong().size(20.0));
+                        ui.horizontal_wrapped(|ui| {
+                            ui.colored_label(status_color(task.status), task.status.label());
+                            if let Some(priority) = task.priority {
+                                ui.colored_label(priority_color(priority), format!("Priority {}", priority.label()));
+                            }
+                            if let Some(project) = task.project.as_deref() {
+                                ui.label(format!("Project {project}"));
+                            }
+                        });
+                        if let Some(due) = task.due.as_deref() {
+                            ui.colored_label(due_color(&task), format!("Due {due}"));
                         }
+                        if !task.description.is_empty() {
+                            ui.add_space(6.0);
+                            ui.label(task.description.clone());
+                        }
+                    });
+                    if !task.tags.is_empty() {
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("Tags").strong());
+                        ui.horizontal_wrapped(|ui| {
+                            for tag in &task.tags {
+                                tag_badge(ui, tag);
+                            }
+                        });
                     }
-                    ui.separator();
-                    ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    ui.horizontal_wrapped(|ui| {
                         if ui.button("Edit").clicked() {
                             self.open_edit_task(&task);
                         }
@@ -456,12 +621,20 @@ impl RivetApp {
                         }
                     });
                 } else {
-                    ui.label("Select a task.");
+                    egui::Frame::group(ui.style()).inner_margin(12.0).show(ui, |ui| {
+                        ui.label("Select a task to inspect details, edit fields, or change status.");
+                    });
                 }
             });
 
         egui::TopBottomPanel::top("task_filters").show(ctx, |ui| {
-            if filter_bar(ui, &mut self.ui_state.task_filters, &projects, &tags) {
+            if filter_bar(
+                ui,
+                &mut self.ui_state.task_filters,
+                &projects,
+                &tags,
+                Some(egui::Id::new(TASK_SEARCH_ID)),
+            ) {
                 self.mark_ui_dirty();
             }
         });
@@ -478,11 +651,17 @@ impl RivetApp {
                 if ui.button("Delete").clicked() {
                     self.bulk_action(BulkAction::Delete);
                 }
-                if ui.button("Project=work").clicked() {
-                    self.bulk_action(BulkAction::ApplyProject("work".to_string()));
+                ui.separator();
+                ui.label("Project");
+                ui.add_sized([160.0, 28.0], egui::TextEdit::singleline(&mut self.bulk_project_input));
+                if ui.button("Apply Project").clicked() {
+                    let project = self.bulk_project_input.trim().to_string();
+                    self.bulk_action(BulkAction::ApplyProject(project));
                 }
-                if ui.button("Tag +today").clicked() {
-                    self.bulk_action(BulkAction::ApplyTag("time:today".to_string()));
+                ui.label("Tags");
+                ui.add_sized([180.0, 28.0], egui::TextEdit::singleline(&mut self.bulk_tag_input));
+                if ui.button("Apply Tags").clicked() {
+                    self.bulk_action(BulkAction::ApplyTag(self.bulk_tag_input.clone()));
                 }
             });
         });
@@ -545,25 +724,31 @@ impl RivetApp {
                         });
                         row.col(|ui| {
                             let selected = self.selected_task == Some(task.uuid);
-                            let response = ui.selectable_label(
-                                selected,
-                                format!("{} [{}]", task.title, task.status.label()),
-                            );
+                            let response = ui.selectable_label(selected, &task.title);
                             if response.clicked() {
                                 self.selected_task = Some(task.uuid);
+                                self.selected_tasks.insert(task.uuid);
                             }
                             if response.double_clicked() {
                                 self.open_edit_task(task);
                             }
                         });
                         row.col(|ui| {
-                            ui.label(task.project.clone().unwrap_or_else(|| "—".to_string()));
+                            ui.colored_label(
+                                status_color(task.status),
+                                task.project.clone().unwrap_or_else(|| "—".to_string()),
+                            );
                         });
                         row.col(|ui| {
-                            ui.label(task.tags.join(" "));
+                            ui.horizontal_wrapped(|ui| {
+                                for tag in task.tags.iter().take(3) {
+                                    tag_badge(ui, tag);
+                                }
+                            });
                         });
                         row.col(|ui| {
-                            ui.label(task.due.clone().unwrap_or_else(|| "—".to_string()));
+                            let due = task.due.clone().unwrap_or_else(|| "—".to_string());
+                            ui.colored_label(due_color(task), due);
                         });
                     });
                 });
@@ -590,10 +775,23 @@ impl RivetApp {
                 ui.heading("Boards");
                 for board in &board_list {
                     let selected = self.ui_state.active_board_id.as_deref() == Some(board.id.as_str());
-                    if ui.selectable_label(selected, &board.name).clicked() {
-                        self.ui_state.active_board_id = Some(board.id.clone());
-                        self.board_editor.rename_name = board.name.clone();
-                        self.mark_ui_dirty();
+                    let (drop_zone, dropped) = ui.dnd_drop_zone::<KanbanDragPayload, _>(
+                        egui::Frame::group(ui.style()).inner_margin(6.0),
+                        |ui| {
+                            let response = ui.selectable_label(selected, &board.name);
+                            if response.clicked() {
+                                self.ui_state.active_board_id = Some(board.id.clone());
+                                self.board_editor.rename_name = board.name.clone();
+                                self.mark_ui_dirty();
+                            }
+                            ui.small(RichText::new(&board.color).color(parse_color(&board.color)));
+                        },
+                    );
+                    if drop_zone.response.hovered() {
+                        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                    }
+                    if let Some(payload) = dropped {
+                        self.move_task_to_kanban_target(payload.task_id, Some(&board.id), Some(&payload.from_lane));
                     }
                 }
                 ui.separator();
@@ -641,7 +839,13 @@ impl RivetApp {
                     self.mark_ui_dirty();
                 }
                 ui.separator();
-                if filter_bar(ui, &mut self.ui_state.kanban_filters, &projects, &tags) {
+                if filter_bar(
+                    ui,
+                    &mut self.ui_state.kanban_filters,
+                    &projects,
+                    &tags,
+                    Some(egui::Id::new(KANBAN_SEARCH_ID)),
+                ) {
                     self.mark_ui_dirty();
                 }
             });
@@ -656,81 +860,125 @@ impl RivetApp {
             egui::ScrollArea::horizontal().show(ui, |ui| {
                 ui.horizontal_top(|ui| {
                     for column in &columns {
-                        egui::Frame::group(ui.style()).show(ui, |ui| {
-                            ui.set_width(320.0);
-                            ui.heading(column);
-                            ui.separator();
-                            for task in visible_tasks.iter().filter(|task| {
+                        let lane_tasks = visible_tasks
+                            .iter()
+                            .filter(|task| {
                                 lane_from_tags(&task.tags, &schema) == *column
                                     && active_board_matches(task, active_board_id.as_deref())
-                            }) {
-                                ui.group(|ui| {
-                                    let title = if self.ui_state.kanban_compact {
-                                        task.title.clone()
-                                    } else {
-                                        format!(
-                                            "{}\n{}\n{}",
-                                            task.title,
-                                            task.project.clone().unwrap_or_default(),
-                                            task.tags.join(" ")
-                                        )
-                                    };
-                                    if ui
-                                        .add(egui::Label::new(title).sense(Sense::click()))
-                                        .clicked()
-                                    {
-                                        self.selected_task = Some(task.uuid);
-                                    }
-                                    ui.horizontal_wrapped(|ui| {
-                                        if ui.button("Edit").clicked() {
-                                            self.open_edit_task(task);
-                                        }
-                                        if ui.button("Next").clicked() {
-                                            let next_lane = next_lane(column, &columns);
-                                            let mut tags = task.tags.clone();
-                                            set_single_tag_value(&mut tags, "kanban", Some(next_lane));
-                                            let mut patch = TaskPatch::default();
-                                            patch.tags = Some(tags);
-                                            if let Err(error) = self.service.update(TaskUpdateArgs {
-                                                uuid: task.uuid,
-                                                patch,
-                                            }) {
-                                                self.set_error(error);
-                                            } else {
-                                                self.refresh_tasks();
-                                            }
-                                        }
-                                        if matches!(task.status, TaskStatus::Pending | TaskStatus::Waiting)
-                                            && ui
-                                                .add_enabled(can_complete_task(task), egui::Button::new("Done"))
-                                                .clicked()
-                                        {
-                                            if let Err(error) = self.service.done(task.uuid) {
-                                                self.set_error(error);
-                                            } else {
-                                                self.refresh_tasks();
-                                            }
-                                        }
-                                        if matches!(task.status, TaskStatus::Completed)
-                                            && ui.button("Undo").clicked()
-                                        {
-                                            if let Err(error) = self.service.uncomplete(task.uuid) {
-                                                self.set_error(error);
-                                            } else {
-                                                self.refresh_tasks();
-                                            }
-                                        }
-                                        if ui.button("Delete").clicked() {
-                                            if let Err(error) = self.service.delete(task.uuid) {
-                                                self.set_error(error);
-                                            } else {
-                                                self.refresh_tasks();
-                                            }
-                                        }
-                                    });
+                            })
+                            .cloned()
+                            .collect::<Vec<_>>();
+
+                        let (drop_zone, dropped) = ui.dnd_drop_zone::<KanbanDragPayload, _>(
+                            egui::Frame::group(ui.style())
+                                .fill(Color32::from_rgba_unmultiplied(255, 255, 255, 8))
+                                .inner_margin(10.0),
+                            |ui| {
+                                ui.set_width(320.0);
+                                ui.horizontal(|ui| {
+                                    ui.heading(column);
+                                    ui.small(format!("{} cards", lane_tasks.len()));
                                 });
-                            }
-                        });
+                                ui.separator();
+                                for task in lane_tasks {
+                                    let payload = KanbanDragPayload {
+                                        task_id: task.uuid,
+                                        from_board_id: board_from_task_tags(&task.tags),
+                                        from_lane: lane_from_task_tags(&task.tags)
+                                            .unwrap_or_else(|| column.clone()),
+                                    };
+                                    let card = ui.dnd_drag_source(
+                                        egui::Id::new(("kanban-card", task.uuid)),
+                                        payload,
+                                        |ui| {
+                                            egui::Frame::group(ui.style())
+                                                .fill(if self.selected_task == Some(task.uuid) {
+                                                    Color32::from_rgba_unmultiplied(47, 125, 246, 32)
+                                                } else {
+                                                    ui.visuals().faint_bg_color
+                                                })
+                                                .inner_margin(10.0)
+                                                .show(ui, |ui| {
+                                                    ui.horizontal_wrapped(|ui| {
+                                                        ui.label(RichText::new(&task.title).strong());
+                                                        ui.colored_label(status_color(task.status), task.status.label());
+                                                    });
+                                                    if !self.ui_state.kanban_compact {
+                                                        if let Some(project) = task.project.as_deref() {
+                                                            ui.small(project);
+                                                        }
+                                                        if let Some(due) = task.due.as_deref() {
+                                                            ui.colored_label(due_color(&task), due);
+                                                        }
+                                                        ui.horizontal_wrapped(|ui| {
+                                                            for tag in task.tags.iter().take(3) {
+                                                                tag_badge(ui, tag);
+                                                            }
+                                                        });
+                                                    }
+                                                    ui.horizontal_wrapped(|ui| {
+                                                        if ui.button("Edit").clicked() {
+                                                            self.open_edit_task(&task);
+                                                        }
+                                                        if ui.button("Next").clicked() {
+                                                            let next_lane = next_lane(column, &columns);
+                                                            self.move_task_to_kanban_target(
+                                                                task.uuid,
+                                                                active_board_id.as_deref(),
+                                                                Some(next_lane),
+                                                            );
+                                                        }
+                                                        if matches!(task.status, TaskStatus::Pending | TaskStatus::Waiting)
+                                                            && ui
+                                                                .add_enabled(
+                                                                    can_complete_task(&task),
+                                                                    egui::Button::new("Done"),
+                                                                )
+                                                                .clicked()
+                                                        {
+                                                            if let Err(error) = self.service.done(task.uuid) {
+                                                                self.set_error(error);
+                                                            } else {
+                                                                self.refresh_tasks();
+                                                            }
+                                                        }
+                                                        if matches!(task.status, TaskStatus::Completed)
+                                                            && ui.button("Undo").clicked()
+                                                        {
+                                                            if let Err(error) = self.service.uncomplete(task.uuid) {
+                                                                self.set_error(error);
+                                                            } else {
+                                                                self.refresh_tasks();
+                                                            }
+                                                        }
+                                                        if ui.button("Delete").clicked() {
+                                                            if let Err(error) = self.service.delete(task.uuid) {
+                                                                self.set_error(error);
+                                                            } else {
+                                                                self.refresh_tasks();
+                                                            }
+                                                        }
+                                                    });
+                                                });
+                                        },
+                                    );
+                                    if card.response.clicked() {
+                                        self.selected_task = Some(task.uuid);
+                                        self.selected_tasks.insert(task.uuid);
+                                    }
+                                }
+                            },
+                        );
+                        if drop_zone.response.hovered() {
+                            ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                        }
+                        if let Some(payload) = dropped {
+                            self.move_task_to_kanban_target(
+                                payload.task_id,
+                                active_board_id.as_deref(),
+                                Some(column),
+                            );
+                        }
                     }
                 });
             });
@@ -766,9 +1014,9 @@ impl RivetApp {
                 ui.separator();
                 let calendars = self.ui_state.imported_calendars.clone();
                 for source in calendars {
-                    ui.group(|ui| {
+                    egui::Frame::group(ui.style()).inner_margin(10.0).show(ui, |ui| {
                         ui.colored_label(parse_color(&source.color), &source.name);
-                        ui.label(&source.path);
+                        ui.label(source.path.display().to_string());
                         ui.small(format!("Imported {}", source.last_imported_at));
                         if ui.button("Re-import").clicked() {
                             self.reimport_calendar(source.clone());
@@ -971,6 +1219,7 @@ impl RivetApp {
 
 impl App for RivetApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.handle_shortcuts(ctx);
         self.ui_shell(ctx);
         match self.ui_state.active_tab {
             WorkspaceTab::Tasks => self.ui_tasks(ctx),
@@ -983,10 +1232,20 @@ impl App for RivetApp {
 }
 
 fn apply_theme(ctx: &egui::Context, theme: ThemeMode) {
-    match theme {
-        ThemeMode::Day => ctx.set_visuals(egui::Visuals::light()),
-        ThemeMode::Night => ctx.set_visuals(egui::Visuals::dark()),
-    }
+    let mut visuals = match theme {
+        ThemeMode::Day => egui::Visuals::light(),
+        ThemeMode::Night => egui::Visuals::dark(),
+    };
+    visuals.window_corner_radius = 10.0.into();
+    visuals.widgets.active.corner_radius = 8.0.into();
+    visuals.widgets.hovered.corner_radius = 8.0.into();
+    visuals.widgets.inactive.corner_radius = 8.0.into();
+    visuals.selection.bg_fill = Color32::from_rgb(47, 125, 246);
+    visuals.panel_fill = match theme {
+        ThemeMode::Day => Color32::from_rgb(245, 246, 248),
+        ThemeMode::Night => Color32::from_rgb(17, 21, 28),
+    };
+    ctx.set_visuals(visuals);
 }
 
 fn text_to_optional(value: String) -> Option<String> {
@@ -1059,11 +1318,21 @@ fn collect_tag_facets(tasks: &[TaskDto]) -> Vec<String> {
     counts.into_iter().collect()
 }
 
-fn filter_bar(ui: &mut egui::Ui, filters: &mut TaskFilters, projects: &[String], tags: &[String]) -> bool {
+fn filter_bar(
+    ui: &mut egui::Ui,
+    filters: &mut TaskFilters,
+    projects: &[String],
+    tags: &[String],
+    search_id: Option<egui::Id>,
+) -> bool {
     let before = filters.clone();
     ui.horizontal_wrapped(|ui| {
         ui.label("Search");
-        ui.text_edit_singleline(&mut filters.search);
+        let mut search = egui::TextEdit::singleline(&mut filters.search).desired_width(180.0);
+        if let Some(id) = search_id {
+            search = search.id(id);
+        }
+        ui.add(search);
         egui::ComboBox::from_id_salt(ui.next_auto_id())
             .selected_text(filters.status.label())
             .show_ui(ui, |ui| {
@@ -1157,6 +1426,59 @@ fn parse_color(raw: &str) -> Color32 {
         }
     }
     Color32::from_rgb(127, 134, 145)
+}
+
+fn status_color(status: TaskStatus) -> Color32 {
+    match status {
+        TaskStatus::Pending => Color32::from_rgb(90, 180, 255),
+        TaskStatus::Waiting => Color32::from_rgb(246, 182, 84),
+        TaskStatus::Completed => Color32::from_rgb(90, 206, 135),
+        TaskStatus::Deleted => Color32::from_rgb(220, 113, 113),
+    }
+}
+
+fn priority_color(priority: TaskPriority) -> Color32 {
+    match priority {
+        TaskPriority::Low => Color32::from_rgb(112, 191, 134),
+        TaskPriority::Medium => Color32::from_rgb(250, 194, 86),
+        TaskPriority::High => Color32::from_rgb(232, 98, 98),
+    }
+}
+
+fn due_color(task: &TaskDto) -> Color32 {
+    if matches!(task.status, TaskStatus::Completed) {
+        return Color32::from_gray(160);
+    }
+    if can_complete_task(task) {
+        Color32::from_rgb(255, 211, 110)
+    } else {
+        Color32::from_rgb(255, 118, 118)
+    }
+}
+
+fn tag_badge(ui: &mut egui::Ui, tag: &str) {
+    egui::Frame::new()
+        .fill(Color32::from_rgba_unmultiplied(255, 255, 255, 18))
+        .corner_radius(6.0)
+        .inner_margin(egui::Margin::symmetric(6, 3))
+        .show(ui, |ui| {
+            ui.small(tag);
+        });
+}
+
+fn primary_modifier_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Cmd +"
+    } else {
+        "Ctrl +"
+    }
+}
+
+fn shortcut_row(ui: &mut egui::Ui, prefix: &str, key: &str, description: &str) {
+    ui.horizontal(|ui| {
+        ui.monospace(format!("{prefix}{key}"));
+        ui.label(description);
+    });
 }
 
 fn next_board_color(boards: &[KanbanBoard]) -> String {

@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::Path;
 use anyhow::Context;
 use chrono::{Local, NaiveDate};
 use serde::{Deserialize, Serialize};
@@ -47,25 +48,32 @@ impl Default for PersistedUiState {
 
 impl PersistedUiState {
     pub fn load() -> anyhow::Result<Self> {
-        let path = resolve_ui_state_path();
-        if !path.is_file() {
-            return Ok(Self::default());
-        }
-        let raw = fs::read_to_string(&path)
-            .with_context(|| format!("failed to read UI state {}", path.display()))?;
-        let state = serde_json::from_str::<Self>(&raw)
-            .with_context(|| format!("failed to parse UI state {}", path.display()))?;
-        Ok(state)
+        Self::load_from_path(&resolve_ui_state_path())
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        let path = resolve_ui_state_path();
+        self.save_to_path(&resolve_ui_state_path())
+    }
+
+    pub fn load_from_path(path: &Path) -> anyhow::Result<Self> {
+        if !path.is_file() {
+            return Ok(Self::default());
+        }
+        let raw = fs::read_to_string(path)
+            .with_context(|| format!("failed to read UI state {}", path.display()))?;
+        match serde_json::from_str::<Self>(&raw) {
+            Ok(state) => Ok(state),
+            Err(_) => Ok(Self::default()),
+        }
+    }
+
+    pub fn save_to_path(&self, path: &Path) -> anyhow::Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create {}", parent.display()))?;
         }
         let raw = serde_json::to_string_pretty(self).context("failed to encode UI state")?;
-        fs::write(&path, raw).with_context(|| format!("failed to write UI state {}", path.display()))
+        fs::write(path, raw).with_context(|| format!("failed to write UI state {}", path.display()))
     }
 
     pub fn focus_date(&self) -> NaiveDate {
@@ -81,6 +89,7 @@ impl PersistedUiState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn default_state_has_main_board() {
@@ -97,5 +106,37 @@ mod tests {
         };
         let parsed = state.focus_date();
         assert!(parsed <= Local::now().date_naive());
+    }
+
+    #[test]
+    fn invalid_json_falls_back_to_default() {
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("ui-state.json");
+        fs::write(&path, "{ not valid json }").expect("write invalid state");
+        let loaded = PersistedUiState::load_from_path(&path).expect("load fallback");
+        assert_eq!(loaded.version, PersistedUiState::default().version);
+        assert_eq!(loaded.active_tab, WorkspaceTab::Tasks);
+    }
+
+    #[test]
+    fn imported_calendar_windows_path_roundtrips() {
+        let state = PersistedUiState {
+            imported_calendars: vec![ImportedCalendarSource {
+                id: "calendar".to_string(),
+                name: "Calendar".to_string(),
+                color: "#ff0000".to_string(),
+                path: std::path::PathBuf::from(r"C:\Users\me\calendar.ics"),
+                last_imported_at: "2026-05-22T00:00:00Z".to_string(),
+            }],
+            ..PersistedUiState::default()
+        };
+        let dir = tempdir().expect("tempdir");
+        let path = dir.path().join("ui-state.json");
+        state.save_to_path(&path).expect("save state");
+        let loaded = PersistedUiState::load_from_path(&path).expect("load state");
+        assert_eq!(
+            loaded.imported_calendars[0].path,
+            std::path::PathBuf::from(r"C:\Users\me\calendar.ics")
+        );
     }
 }

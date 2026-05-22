@@ -2,8 +2,8 @@ mod app;
 mod calendar;
 mod persistence;
 mod runtime;
-mod services;
+pub mod services;
 mod tags;
-mod types;
+pub mod types;
 
 pub use app::run;
