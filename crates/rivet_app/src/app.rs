@@ -22,7 +22,7 @@ use crate::runtime::RuntimeConfigService;
 use crate::services::{can_complete_task, IcsImportResult, TaskService};
 use crate::tags::{board_id_from_tags, set_single_tag_value, split_tags, BOARD_TAG_KEY};
 use crate::types::{
-    DueFilter, ImportedCalendarSource, KanbanBoard, PriorityFilter, StatusFilter, TagSchema,
+    CalendarView, DueFilter, ImportedCalendarSource, KanbanBoard, PriorityFilter, StatusFilter, TagSchema,
     TaskCreate, TaskDto, TaskFilters, TaskPatch, TaskPriority, TaskStatus, TaskUpdateArgs,
     ThemeMode, WorkspaceTab,
 };
@@ -412,6 +412,15 @@ impl RivetApp {
             }
             Err(error) => self.set_error(error),
         }
+    }
+
+    fn focus_calendar_entry(&mut self, entry: &crate::types::CalendarEntry, timezone: chrono_tz::Tz) {
+        self.ui_state.set_focus_date(entry.due_utc.with_timezone(&timezone).date_naive());
+        self.ui_state.calendar_view = CalendarView::Day;
+        self.selected_task = Some(entry.task.uuid);
+        self.selected_tasks.clear();
+        self.selected_tasks.insert(entry.task.uuid);
+        self.mark_ui_dirty();
     }
 
 }
