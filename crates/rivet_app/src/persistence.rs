@@ -21,7 +21,15 @@ pub struct PersistedUiState {
     pub kanban_compact: bool,
     pub calendar_view: CalendarView,
     pub calendar_focus_date: String,
+    #[serde(default = "default_true")]
+    pub calendar_show_left_panel: bool,
+    #[serde(default)]
+    pub calendar_show_right_panel: bool,
     pub imported_calendars: Vec<ImportedCalendarSource>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for PersistedUiState {
@@ -41,6 +49,8 @@ impl Default for PersistedUiState {
             kanban_compact: false,
             calendar_view: CalendarView::Month,
             calendar_focus_date: Local::now().date_naive().to_string(),
+            calendar_show_left_panel: true,
+            calendar_show_right_panel: false,
             imported_calendars: Vec::new(),
         }
     }

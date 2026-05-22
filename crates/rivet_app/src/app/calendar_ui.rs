@@ -1,29 +1,36 @@
 use chrono::{Datelike, Local, Timelike, Utc};
-use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
+use eframe::egui::{self, Align, Color32, CornerRadius, Layout, RichText, Sense, Stroke, Vec2};
 
 use super::{
     calendar_title, entries_for_day, entries_for_month, month_days, month_grid_start, parse_color,
     period_entries, period_stats, quarter_months, shift_focus, should_show_entry_in_list,
     should_show_marker, truncate, visible_calendar_entries, week_days, year_months, RivetApp,
 };
-use crate::types::{CalendarEntry, CalendarMarkerKind, CalendarView};
+use crate::types::{CalendarEntry, CalendarMarkerKind, CalendarView, ThemeMode};
+
+const LEFT_PANEL_WIDTH: f32 = 248.0;
+const RIGHT_PANEL_WIDTH: f32 = 312.0;
+const YEAR_CARD_SIZE: Vec2 = Vec2::new(210.0, 118.0);
+const QUARTER_CARD_SIZE: Vec2 = Vec2::new(210.0, 132.0);
+const MONTH_CELL_HEIGHT: f32 = 118.0;
 
 impl RivetApp {
     pub(super) fn ui_calendar(&mut self, ctx: &egui::Context) {
         let focus = self.ui_state.focus_date();
         let now_utc = Utc::now();
-        let entries = visible_calendar_entries(
-            &self.tasks,
-            &self.ui_state.kanban_boards,
-            &self.runtime.calendar,
-            now_utc,
-        );
         let timezone = self
             .runtime
             .calendar
             .timezone
             .parse()
             .unwrap_or(chrono_tz::America::Mexico_City);
+        let today = Local::now().date_naive();
+        let entries = visible_calendar_entries(
+            &self.tasks,
+            &self.ui_state.kanban_boards,
+            &self.runtime.calendar,
+            now_utc,
+        );
         let period_all = period_entries(
             &entries,
             self.ui_state.calendar_view,
@@ -37,166 +44,62 @@ impl RivetApp {
             .cloned()
             .collect::<Vec<_>>();
         let stats = period_stats(&period_all);
-        let today = Local::now().date_naive();
-
-        egui::SidePanel::left("calendar_left")
-            .resizable(true)
-            .default_width(280.0)
-            .show(ctx, |ui| {
-                ui.heading("Calendar Views");
-                ui.add_space(6.0);
-                ui.horizontal_wrapped(|ui| {
-                    for view in CalendarView::ALL {
-                        if ui
-                            .add_sized(
-                                [72.0, 28.0],
-                                egui::Button::new(view.label()).selected(self.ui_state.calendar_view == view),
-                            )
-                            .clicked()
-                        {
-                            self.ui_state.calendar_view = view;
-                            self.mark_ui_dirty();
-                        }
-                    }
-                });
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Prev").clicked() {
-                        let next = shift_focus(self.ui_state.calendar_view, focus, -1);
-                        self.ui_state.set_focus_date(next);
-                        self.mark_ui_dirty();
-                    }
-                    if ui.button("Today").clicked() {
-                        self.ui_state.set_focus_date(today);
-                        self.mark_ui_dirty();
-                    }
-                    if ui.button("Next").clicked() {
-                        let next = shift_focus(self.ui_state.calendar_view, focus, 1);
-                        self.ui_state.set_focus_date(next);
-                        self.mark_ui_dirty();
-                    }
-                });
-                ui.add_space(8.0);
-                ui.small(format!("Timezone: {}", self.runtime.calendar.timezone));
-                ui.small(format!("Focus: {}", focus.format("%Y-%m-%d")));
-                ui.small(format!("Calendar items: {}", entries.len()));
-
-                ui.add_space(12.0);
-                ui.separator();
-                ui.add_space(8.0);
-                ui.heading("Imported Calendars");
-                if ui
-                    .add_enabled(!self.import_busy, egui::Button::new("Import ICS"))
-                    .clicked()
-                    && let Some(path) =
-                        rfd::FileDialog::new().add_filter("ICS", &["ics"]).pick_file()
-                {
-                    self.import_ics(path);
-                }
-                ui.add_space(8.0);
-                egui::ScrollArea::vertical()
-                    .max_height(320.0)
-                    .show(ui, |ui| {
-                        if self.ui_state.imported_calendars.is_empty() {
-                            ui.label(RichText::new("No imported calendars yet.").weak());
-                        }
-                        let calendars = self.ui_state.imported_calendars.clone();
-                        for source in calendars {
-                            egui::Frame::group(ui.style())
-                                .fill(ui.visuals().faint_bg_color)
-                                .corner_radius(12.0)
-                                .inner_margin(10.0)
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.colored_label(parse_color(&source.color), "●");
-                                        ui.label(RichText::new(&source.name).strong());
-                                    });
-                                    ui.small(source.path.display().to_string());
-                                    ui.small(format!("Imported {}", source.last_imported_at));
-                                    ui.add_space(6.0);
-                                    if ui
-                                        .add_enabled(!self.import_busy, egui::Button::new("Re-import"))
-                                        .clicked()
-                                    {
-                                        self.reimport_calendar(source.clone());
-                                    }
-                                });
-                            ui.add_space(6.0);
-                        }
-                    });
-
-                ui.add_space(10.0);
-                ui.separator();
-                ui.add_space(8.0);
-                ui.label(RichText::new("Marker legend").strong());
-                marker_legend_row(ui, Color32::from_rgb(214, 69, 69), "External calendar");
-                marker_legend_row(ui, Color32::from_rgb(47, 125, 246), "Kanban board task");
-                marker_legend_row(ui, Color32::from_rgb(127, 134, 145), "Unassigned task");
-            });
-
-        egui::SidePanel::right("calendar_right")
-            .resizable(true)
-            .default_width(320.0)
-            .show(ctx, |ui| {
-                ui.heading("Calendar Stats");
-                stat_row(ui, "Items in period", stats.0);
-                stat_row(ui, "Pending", stats.1);
-                stat_row(ui, "Waiting", stats.2);
-                stat_row(ui, "Completed", stats.3);
-                stat_row(ui, "Deleted", stats.4);
-                ui.add_space(10.0);
-                ui.separator();
-                ui.add_space(8.0);
-                ui.heading("Tasks In Period");
-                ui.small(if self.runtime.calendar.filter_before_now {
-                    "Past items are muted in the calendar and filtered from this list."
-                } else {
-                    "Showing all period items, including past ones."
-                });
-                ui.add_space(8.0);
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    if period_visible.is_empty() {
-                        ui.label(RichText::new("No tasks due in this calendar period.").weak());
-                        return;
-                    }
-                    for entry in period_visible.iter().take(self.runtime.calendar.task_list_limit) {
-                        egui::Frame::group(ui.style())
-                            .fill(ui.visuals().faint_bg_color)
-                            .corner_radius(12.0)
-                            .inner_margin(10.0)
-                            .show(ui, |ui| {
-                                ui.horizontal_wrapped(|ui| {
-                                    ui.colored_label(parse_color(&entry.color), "●");
-                                    ui.label(RichText::new(&entry.label).strong());
-                                });
-                                ui.small(
-                                    entry
-                                        .due_utc
-                                        .with_timezone(&timezone)
-                                        .format("%Y-%m-%d %H:%M")
-                                        .to_string(),
-                                );
-                                if let Some(project) = entry.task.project.as_deref() {
-                                    ui.small(format!("project:{project}"));
-                                }
-                                if !entry.task.tags.is_empty() {
-                                    ui.horizontal_wrapped(|ui| {
-                                        for tag in entry.task.tags.iter().take(4) {
-                                            super::tag_badge(ui, tag);
-                                        }
-                                    });
-                                }
-                            });
-                        ui.add_space(6.0);
-                    }
-                });
-            });
 
         egui::TopBottomPanel::top("calendar_toolbar").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.heading(calendar_title(self.ui_state.calendar_view, focus));
                 ui.separator();
-                ui.small(format!("Week starts on {}", if self.runtime.calendar.week_start_monday { "Monday" } else { "Sunday" }));
+                if ui.button("Prev").clicked() {
+                    let next = shift_focus(self.ui_state.calendar_view, focus, -1);
+                    self.ui_state.set_focus_date(next);
+                    self.mark_ui_dirty();
+                }
+                if ui.button("Today").clicked() {
+                    self.ui_state.set_focus_date(today);
+                    self.mark_ui_dirty();
+                }
+                if ui.button("Next").clicked() {
+                    let next = shift_focus(self.ui_state.calendar_view, focus, 1);
+                    self.ui_state.set_focus_date(next);
+                    self.mark_ui_dirty();
+                }
+                ui.separator();
+                if ui
+                    .add(egui::Button::new("Sources").selected(self.ui_state.calendar_show_left_panel))
+                    .clicked()
+                {
+                    self.ui_state.calendar_show_left_panel = !self.ui_state.calendar_show_left_panel;
+                    self.mark_ui_dirty();
+                }
+                if ui
+                    .add(egui::Button::new("Details").selected(self.ui_state.calendar_show_right_panel))
+                    .clicked()
+                {
+                    self.ui_state.calendar_show_right_panel = !self.ui_state.calendar_show_right_panel;
+                    self.mark_ui_dirty();
+                }
+                ui.separator();
+                for view in CalendarView::ALL {
+                    if ui
+                        .add_sized(
+                            [70.0, 28.0],
+                            egui::Button::new(view.label()).selected(self.ui_state.calendar_view == view),
+                        )
+                        .clicked()
+                    {
+                        self.ui_state.calendar_view = view;
+                        self.mark_ui_dirty();
+                    }
+                }
+                ui.separator();
+                ui.small(format!(
+                    "Week starts on {}",
+                    if self.runtime.calendar.week_start_monday {
+                        "Monday"
+                    } else {
+                        "Sunday"
+                    }
+                ));
                 if self.import_busy {
                     ui.separator();
                     ui.spinner();
@@ -206,31 +109,207 @@ impl RivetApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            egui::Frame::group(ui.style())
-                .fill(match self.ui_state.theme_mode {
-                    crate::types::ThemeMode::Day => Color32::from_rgb(252, 252, 250),
-                    crate::types::ThemeMode::Night => Color32::from_rgb(24, 28, 36),
-                })
-                .corner_radius(18.0)
-                .stroke(Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color))
-                .inner_margin(14.0)
-                .show(ui, |ui| match self.ui_state.calendar_view {
-                    CalendarView::Year => render_year_view(ui, &entries, focus, timezone, today, &self.runtime.calendar, now_utc),
-                    CalendarView::Quarter => {
-                        render_quarter_view(ui, &entries, focus, timezone, today, &self.runtime.calendar, now_utc)
+            ui.horizontal(|ui| {
+                let available_height = ui.available_height();
+
+                if self.ui_state.calendar_show_left_panel {
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(LEFT_PANEL_WIDTH, available_height),
+                        Layout::top_down(Align::Min),
+                        |ui| {
+                            render_left_panel(self, ui, focus, &entries);
+                        },
+                    );
+                    ui.add_space(10.0);
+                }
+
+                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    if self.ui_state.calendar_show_right_panel {
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(RIGHT_PANEL_WIDTH, available_height),
+                            Layout::top_down(Align::Min),
+                            |ui| {
+                                render_right_panel(self, ui, &period_visible, &stats, timezone);
+                            },
+                        );
+                        ui.add_space(10.0);
                     }
-                    CalendarView::Month => {
-                        render_month_view(ui, &entries, focus, timezone, today, &self.runtime.calendar, now_utc)
-                    }
-                    CalendarView::Week => {
-                        render_week_view(ui, &entries, focus, timezone, today, &self.runtime.calendar, now_utc)
-                    }
-                    CalendarView::Day => {
-                        render_day_view(ui, &entries, focus, timezone, today, &self.runtime.calendar, now_utc)
-                    }
+
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(ui.available_width(), available_height),
+                        Layout::top_down(Align::Min),
+                        |ui| {
+                            let fill = match self.ui_state.theme_mode {
+                                ThemeMode::Day => Color32::from_rgb(251, 251, 248),
+                                ThemeMode::Night => Color32::from_rgb(24, 28, 36),
+                            };
+                            egui::Frame::new()
+                                .fill(fill)
+                                .corner_radius(CornerRadius::same(18))
+                                .stroke(Stroke::new(
+                                    1.0_f32,
+                                    ui.visuals().widgets.noninteractive.bg_stroke.color,
+                                ))
+                                .inner_margin(14.0)
+                                .show(ui, |ui| match self.ui_state.calendar_view {
+                                    CalendarView::Year => {
+                                        render_year_view(ui, &entries, focus, timezone, today, &self.runtime.calendar, now_utc)
+                                    }
+                                    CalendarView::Quarter => {
+                                        render_quarter_view(ui, &entries, focus, timezone, today, &self.runtime.calendar, now_utc)
+                                    }
+                                    CalendarView::Month => {
+                                        render_month_view(ui, &entries, focus, timezone, today, &self.runtime.calendar, now_utc)
+                                    }
+                                    CalendarView::Week => {
+                                        render_week_view(ui, &entries, focus, timezone, today, &self.runtime.calendar, now_utc)
+                                    }
+                                    CalendarView::Day => {
+                                        render_day_view(ui, &entries, focus, timezone, today, &self.runtime.calendar, now_utc)
+                                    }
+                                });
+                        },
+                    );
                 });
+            });
         });
     }
+}
+
+fn render_left_panel(app: &mut RivetApp, ui: &mut egui::Ui, focus: chrono::NaiveDate, entries: &[CalendarEntry]) {
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.heading("Calendar");
+            ui.small(format!("Timezone: {}", app.runtime.calendar.timezone));
+            ui.small(format!("Focus: {}", focus.format("%Y-%m-%d")));
+            ui.small(format!("Items: {}", entries.len()));
+        });
+    ui.add_space(10.0);
+
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.heading("Imported Calendars");
+            if ui
+                .add_enabled(!app.import_busy, egui::Button::new("Import ICS"))
+                .clicked()
+                && let Some(path) = rfd::FileDialog::new().add_filter("ICS", &["ics"]).pick_file()
+            {
+                app.import_ics(path);
+            }
+            ui.add_space(8.0);
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                if app.ui_state.imported_calendars.is_empty() {
+                    ui.label(RichText::new("No imported calendars yet.").weak());
+                }
+                let calendars = app.ui_state.imported_calendars.clone();
+                for source in calendars {
+                    egui::Frame::group(ui.style())
+                        .fill(ui.visuals().faint_bg_color)
+                        .corner_radius(CornerRadius::same(12))
+                        .inner_margin(10.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                paint_marker(ui, parse_color(&source.color), CalendarMarkerKind::ExternalCalendar, 10.0);
+                                ui.label(RichText::new(&source.name).strong());
+                            });
+                            ui.small(truncate(&source.path.display().to_string(), 56));
+                            ui.small(format!("Imported {}", source.last_imported_at));
+                            ui.add_space(4.0);
+                            if ui
+                                .add_enabled(!app.import_busy, egui::Button::new("Re-import"))
+                                .clicked()
+                            {
+                                app.reimport_calendar(source.clone());
+                            }
+                        });
+                    ui.add_space(6.0);
+                }
+            });
+        });
+
+    ui.add_space(10.0);
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.label(RichText::new("Marker Legend").strong());
+            legend_row(ui, Color32::from_rgb(214, 69, 69), CalendarMarkerKind::ExternalCalendar, "External calendar");
+            legend_row(ui, Color32::from_rgb(47, 125, 246), CalendarMarkerKind::KanbanBoard, "Kanban board task");
+            legend_row(ui, Color32::from_rgb(127, 134, 145), CalendarMarkerKind::Unassigned, "Unassigned task");
+        });
+}
+
+fn render_right_panel(
+    app: &RivetApp,
+    ui: &mut egui::Ui,
+    period_visible: &[CalendarEntry],
+    stats: &(usize, usize, usize, usize, usize),
+    timezone: chrono_tz::Tz,
+) {
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.heading("Period Stats");
+            stat_row(ui, "Items", stats.0);
+            stat_row(ui, "Pending", stats.1);
+            stat_row(ui, "Waiting", stats.2);
+            stat_row(ui, "Completed", stats.3);
+            stat_row(ui, "Deleted", stats.4);
+        });
+
+    ui.add_space(10.0);
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.heading("Tasks In Period");
+            ui.small(if app.runtime.calendar.filter_before_now {
+                "Past items are filtered from this list."
+            } else {
+                "Showing all items in this period."
+            });
+            ui.add_space(8.0);
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                if period_visible.is_empty() {
+                    ui.label(RichText::new("No tasks due in this period.").weak());
+                    return;
+                }
+                for entry in period_visible.iter().take(app.runtime.calendar.task_list_limit) {
+                    egui::Frame::group(ui.style())
+                        .fill(ui.visuals().faint_bg_color)
+                        .corner_radius(CornerRadius::same(12))
+                        .inner_margin(10.0)
+                        .show(ui, |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                paint_marker(ui, parse_color(&entry.color), entry.marker_kind, 10.0);
+                                ui.label(RichText::new(&entry.label).strong());
+                            });
+                            ui.small(
+                                entry
+                                    .due_utc
+                                    .with_timezone(&timezone)
+                                    .format("%Y-%m-%d %H:%M")
+                                    .to_string(),
+                            );
+                            if let Some(project) = entry.task.project.as_deref() {
+                                ui.small(format!("project:{project}"));
+                            }
+                            ui.horizontal_wrapped(|ui| {
+                                if let Some(source) = entry.source_id.as_deref() {
+                                    super::tag_badge(ui, &format!("cal:{source}"));
+                                }
+                                if let Some(board) = entry.board_id.as_deref() {
+                                    super::tag_badge(ui, &format!("board:{board}"));
+                                }
+                                for tag in entry.task.tags.iter().take(3) {
+                                    super::tag_badge(ui, tag);
+                                }
+                            });
+                        });
+                    ui.add_space(6.0);
+                }
+            });
+        });
 }
 
 fn render_year_view(
@@ -248,7 +327,7 @@ fn render_year_view(
         .show(ui, |ui| {
             for (index, month) in year_months(focus).iter().enumerate() {
                 let month_entries = entries_for_month(entries, *month, timezone);
-                period_card(ui, month.format("%B").to_string(), month_entries, *month, today, config, now_utc);
+                period_card(ui, YEAR_CARD_SIZE, month.format("%B").to_string(), month_entries, *month, today, config, now_utc);
                 if (index + 1) % 3 == 0 {
                     ui.end_row();
                 }
@@ -271,7 +350,7 @@ fn render_quarter_view(
         .show(ui, |ui| {
             for month in quarter_months(focus) {
                 let month_entries = entries_for_month(entries, month, timezone);
-                period_card(ui, month.format("%B").to_string(), month_entries, month, today, config, now_utc);
+                period_card(ui, QUARTER_CARD_SIZE, month.format("%B").to_string(), month_entries, month, today, config, now_utc);
             }
         });
 }
@@ -296,48 +375,58 @@ fn render_month_view(
         }
     });
     ui.add_space(6.0);
-    let start = month_grid_start(focus, config.week_start_monday);
-    let days = month_days(start);
+
     egui::Grid::new("calendar_month_grid")
         .num_columns(7)
         .spacing(Vec2::new(8.0, 8.0))
         .show(ui, |ui| {
-            for (index, day) in days.iter().enumerate() {
+            for (index, day) in month_days(month_grid_start(focus, config.week_start_monday)).iter().enumerate() {
                 let day_entries = entries_for_day(entries, *day, timezone);
                 let is_today = *day == today;
                 let is_outside = day.month() != focus.month();
                 let is_past = *day < today;
-                let muted = config.de_emphasize_past_periods && is_past;
                 let fill = if is_today {
-                    Color32::from_rgba_unmultiplied(47, 125, 246, 28)
-                } else if muted {
-                    Color32::from_rgba_unmultiplied(127, 134, 145, 12)
+                    Color32::from_rgba_unmultiplied(47, 125, 246, 26)
+                } else if config.de_emphasize_past_periods && is_past {
+                    Color32::from_rgba_unmultiplied(127, 134, 145, 10)
                 } else {
                     ui.visuals().faint_bg_color
                 };
-                egui::Frame::group(ui.style())
+                egui::Frame::new()
                     .fill(fill)
-                    .corner_radius(12.0)
+                    .corner_radius(CornerRadius::same(12))
+                    .stroke(Stroke::new(
+                        1.0_f32,
+                        if is_today {
+                            Color32::from_rgb(47, 125, 246)
+                        } else {
+                            ui.visuals().widgets.noninteractive.bg_stroke.color
+                        },
+                    ))
                     .inner_margin(8.0)
                     .show(ui, |ui| {
-                        ui.set_min_size(Vec2::new(120.0, 110.0));
-                        let heading = if is_outside {
-                            RichText::new(day.day().to_string()).weak()
-                        } else if is_today {
-                            RichText::new(day.day().to_string()).strong().color(Color32::from_rgb(47, 125, 246))
-                        } else {
-                            RichText::new(day.day().to_string()).strong()
-                        };
-                        ui.label(heading);
-                        marker_row(ui, &day_entries, config, now_utc);
-                        for entry in day_entries
-                            .into_iter()
-                            .filter(|entry| should_show_marker(entry, config, now_utc) || !config.hide_past_markers)
-                            .take(3)
-                        {
-                            let text = truncate(&entry.label, 18);
-                            ui.colored_label(parse_color(&entry.color), text);
-                        }
+                        ui.set_min_size(Vec2::new(0.0, MONTH_CELL_HEIGHT));
+                        ui.vertical(|ui| {
+                            let heading = if is_outside {
+                                RichText::new(day.day().to_string()).weak()
+                            } else if is_today {
+                                RichText::new(day.day().to_string()).strong().color(Color32::from_rgb(47, 125, 246))
+                            } else {
+                                RichText::new(day.day().to_string()).strong()
+                            };
+                            ui.label(heading);
+                            marker_row(ui, &day_entries, config, now_utc, 6);
+                            for entry in day_entries
+                                .iter()
+                                .filter(|entry| should_show_marker(entry, config, now_utc) || !config.hide_past_markers)
+                                .take(2)
+                            {
+                                ui.horizontal(|ui| {
+                                    paint_marker(ui, parse_color(&entry.color), entry.marker_kind, 8.0);
+                                    ui.label(RichText::new(truncate(&entry.label, 18)).small());
+                                });
+                            }
+                        });
                     });
                 if (index + 1) % 7 == 0 {
                     ui.end_row();
@@ -355,36 +444,43 @@ fn render_week_view(
     config: &crate::types::CalendarConfig,
     now_utc: chrono::DateTime<Utc>,
 ) {
-    let days = week_days(focus, config.week_start_monday);
     ui.columns(7, |columns| {
-        for (index, day) in days.iter().enumerate() {
+        for (index, day) in week_days(focus, config.week_start_monday).iter().enumerate() {
             let day_entries = entries_for_day(entries, *day, timezone);
             let fill = if *day == today {
-                Color32::from_rgba_unmultiplied(47, 125, 246, 28)
+                Color32::from_rgba_unmultiplied(47, 125, 246, 26)
             } else if config.de_emphasize_past_periods && *day < today {
-                Color32::from_rgba_unmultiplied(127, 134, 145, 12)
+                Color32::from_rgba_unmultiplied(127, 134, 145, 10)
             } else {
                 columns[index].visuals().faint_bg_color
             };
-            egui::Frame::group(columns[index].style())
+            egui::Frame::new()
                 .fill(fill)
-                .corner_radius(12.0)
+                .corner_radius(CornerRadius::same(12))
+                .stroke(Stroke::new(1.0_f32, columns[index].visuals().widgets.noninteractive.bg_stroke.color))
                 .inner_margin(8.0)
                 .show(&mut columns[index], |ui| {
-                    ui.set_min_size(Vec2::new(120.0, 220.0));
+                    ui.set_min_size(Vec2::new(0.0, 240.0));
                     ui.label(RichText::new(day.format("%a %e").to_string()).strong());
                     ui.small(format!("{} items", day_entries.len()));
-                    marker_row(ui, &day_entries, config, now_utc);
+                    marker_row(ui, &day_entries, config, now_utc, 6);
                     ui.add_space(4.0);
-                    for entry in day_entries.iter().take(6) {
-                        let time = entry.due_utc.with_timezone(&timezone).format("%H:%M");
-                        let text = format!("{time} {}", truncate(&entry.label, 18));
+                    for entry in day_entries.iter().take(5) {
                         let color = if should_show_entry_in_list(entry, config, now_utc) {
                             parse_color(&entry.color)
                         } else {
-                            Color32::from_gray(140)
+                            Color32::from_gray(145)
                         };
-                        ui.colored_label(color, text);
+                        ui.horizontal(|ui| {
+                            paint_marker(ui, color, entry.marker_kind, 8.0);
+                            ui.label(RichText::new(format!(
+                                "{} {}",
+                                entry.due_utc.with_timezone(&timezone).format("%H:%M"),
+                                truncate(&entry.label, 18)
+                            ))
+                            .small()
+                            .color(color));
+                        });
                     }
                 });
         }
@@ -401,22 +497,20 @@ fn render_day_view(
     now_utc: chrono::DateTime<Utc>,
 ) {
     let day_entries = entries_for_day(entries, focus, timezone);
-    let is_today = focus == today;
     let now_local = now_utc.with_timezone(&timezone);
-    let hour_start = config.day_view_hour_start;
-    let hour_end = config.day_view_hour_end;
+    let is_today = focus == today;
 
     ui.label(RichText::new(focus.format("%A %B %e, %Y").to_string()).strong().size(20.0));
     ui.add_space(8.0);
     egui::ScrollArea::vertical().show(ui, |ui| {
-        for hour in hour_start..=hour_end {
-            egui::Frame::group(ui.style())
+        for hour in config.day_view_hour_start..=config.day_view_hour_end {
+            egui::Frame::new()
                 .fill(if is_today && now_local.hour() == u32::from(hour) {
-                    Color32::from_rgba_unmultiplied(47, 125, 246, 24)
+                    Color32::from_rgba_unmultiplied(47, 125, 246, 18)
                 } else {
                     ui.visuals().faint_bg_color
                 })
-                .corner_radius(10.0)
+                .corner_radius(CornerRadius::same(10))
                 .inner_margin(8.0)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -434,18 +528,21 @@ fn render_day_view(
                                     let color = if should_show_entry_in_list(entry, config, now_utc) {
                                         parse_color(&entry.color)
                                     } else {
-                                        Color32::from_gray(140)
+                                        Color32::from_gray(145)
                                     };
-                                    ui.colored_label(
-                                        color,
-                                        format!(
-                                            "{}  {}",
-                                            entry.due_utc.with_timezone(&timezone).format("%H:%M"),
-                                            entry.label
-                                        ),
-                                    );
+                                    ui.horizontal(|ui| {
+                                        paint_marker(ui, color, entry.marker_kind, 9.0);
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "{}  {}",
+                                                entry.due_utc.with_timezone(&timezone).format("%H:%M"),
+                                                entry.label
+                                            ))
+                                            .color(color),
+                                        );
+                                    });
                                     if !entry.task.description.is_empty() {
-                                        ui.small(truncate(&entry.task.description, 80));
+                                        ui.small(truncate(&entry.task.description, 90));
                                     }
                                 }
                             }
@@ -459,6 +556,7 @@ fn render_day_view(
 
 fn period_card(
     ui: &mut egui::Ui,
+    size: Vec2,
     title: String,
     entries: Vec<CalendarEntry>,
     month: chrono::NaiveDate,
@@ -467,33 +565,35 @@ fn period_card(
     now_utc: chrono::DateTime<Utc>,
 ) {
     let is_current = month.year() == today.year() && month.month() == today.month();
-    let is_past = month < chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
+    let current_month_start = chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
     let fill = if is_current {
         Color32::from_rgba_unmultiplied(47, 125, 246, 24)
-    } else if config.de_emphasize_past_periods && is_past {
-        Color32::from_rgba_unmultiplied(127, 134, 145, 12)
+    } else if config.de_emphasize_past_periods && month < current_month_start {
+        Color32::from_rgba_unmultiplied(127, 134, 145, 10)
     } else {
         ui.visuals().faint_bg_color
     };
-    egui::Frame::group(ui.style())
-        .fill(fill)
-        .corner_radius(14.0)
-        .inner_margin(10.0)
-        .show(ui, |ui| {
-            ui.set_min_size(Vec2::new(170.0, 120.0));
-            ui.label(RichText::new(title).strong());
-            ui.small(format!("{} items", entries.len()));
-            marker_row(ui, &entries, config, now_utc);
-            ui.add_space(4.0);
-            for entry in entries.iter().take(4) {
-                let color = if should_show_entry_in_list(entry, config, now_utc) {
-                    parse_color(&entry.color)
-                } else {
-                    Color32::from_gray(140)
-                };
-                ui.colored_label(color, truncate(&entry.label, 20));
-            }
-        });
+
+    ui.allocate_ui_with_layout(size, Layout::top_down(Align::Min), |ui| {
+        egui::Frame::new()
+            .fill(fill)
+            .corner_radius(CornerRadius::same(14))
+            .stroke(Stroke::new(1.0_f32, ui.visuals().widgets.noninteractive.bg_stroke.color))
+            .inner_margin(10.0)
+            .show(ui, |ui| {
+                ui.set_min_size(size - Vec2::new(4.0, 4.0));
+                ui.label(RichText::new(title).strong());
+                ui.small(format!("{} items", entries.len()));
+                ui.add_space(8.0);
+                marker_row(ui, &entries, config, now_utc, 10);
+                ui.add_space(8.0);
+                let pending = entries
+                    .iter()
+                    .filter(|entry| should_show_entry_in_list(entry, config, now_utc))
+                    .count();
+                ui.small(format!("{pending} active in view"));
+            });
+    });
 }
 
 fn marker_row(
@@ -501,6 +601,7 @@ fn marker_row(
     entries: &[CalendarEntry],
     config: &crate::types::CalendarConfig,
     now_utc: chrono::DateTime<Utc>,
+    max_markers: usize,
 ) {
     let markers = entries
         .iter()
@@ -511,23 +612,18 @@ fn marker_row(
         return;
     }
     ui.horizontal_wrapped(|ui| {
-        for entry in markers.into_iter().take(8) {
-            let glyph = match entry.marker_kind {
-                CalendarMarkerKind::ExternalCalendar => "●",
-                CalendarMarkerKind::KanbanBoard => "▲",
-                CalendarMarkerKind::Unassigned => "■",
-            };
-            ui.colored_label(parse_color(&entry.color), glyph);
+        for entry in markers.iter().take(max_markers) {
+            paint_marker(ui, parse_color(&entry.color), entry.marker_kind, 8.0);
         }
-        if entries.len() > 8 {
-            ui.small(format!("+{}", entries.len() - 8));
+        if markers.len() > max_markers {
+            ui.small(format!("+{}", markers.len() - max_markers));
         }
     });
 }
 
-fn marker_legend_row(ui: &mut egui::Ui, color: Color32, label: &str) {
+fn legend_row(ui: &mut egui::Ui, color: Color32, kind: CalendarMarkerKind, label: &str) {
     ui.horizontal(|ui| {
-        ui.colored_label(color, "●");
+        paint_marker(ui, color, kind, 10.0);
         ui.label(label);
     });
 }
@@ -538,4 +634,24 @@ fn stat_row(ui: &mut egui::Ui, label: &str, value: usize) {
         ui.separator();
         ui.label(RichText::new(value.to_string()).strong());
     });
+}
+
+fn paint_marker(ui: &mut egui::Ui, color: Color32, kind: CalendarMarkerKind, size: f32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+    let painter = ui.painter();
+    match kind {
+        CalendarMarkerKind::ExternalCalendar => {
+            painter.circle_filled(rect.center(), size * 0.35, color);
+        }
+        CalendarMarkerKind::KanbanBoard => {
+            let top = egui::pos2(rect.center().x, rect.top() + size * 0.15);
+            let left = egui::pos2(rect.left() + size * 0.15, rect.bottom() - size * 0.15);
+            let right = egui::pos2(rect.right() - size * 0.15, rect.bottom() - size * 0.15);
+            painter.add(egui::Shape::convex_polygon(vec![top, left, right], color, Stroke::NONE));
+        }
+        CalendarMarkerKind::Unassigned => {
+            let inner = rect.shrink(size * 0.2);
+            painter.rect_filled(inner, CornerRadius::same(1), color);
+        }
+    }
 }
