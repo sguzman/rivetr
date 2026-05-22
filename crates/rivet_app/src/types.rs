@@ -215,16 +215,20 @@ pub struct KanbanBoard {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CalendarView {
+    Year,
+    Quarter,
     Month,
     Week,
     Day,
 }
 
 impl CalendarView {
-    pub const ALL: [Self; 3] = [Self::Month, Self::Week, Self::Day];
+    pub const ALL: [Self; 5] = [Self::Year, Self::Quarter, Self::Month, Self::Week, Self::Day];
 
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Year => "Year",
+            Self::Quarter => "Quarter",
             Self::Month => "Month",
             Self::Week => "Week",
             Self::Day => "Day",
@@ -295,6 +299,7 @@ pub struct RuntimeCalendarConfig {
     pub timezone: Option<String>,
     pub policies: Option<RuntimeCalendarPolicies>,
     pub visibility: Option<RuntimeCalendarVisibility>,
+    pub day_view: Option<RuntimeCalendarDayView>,
     pub toggles: Option<RuntimeCalendarToggles>,
 }
 
@@ -315,6 +320,12 @@ pub struct RuntimeCalendarVisibility {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeCalendarDayView {
+    pub hour_start: Option<u8>,
+    pub hour_end: Option<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeCalendarToggles {
     pub de_emphasize_past_periods: Option<bool>,
     pub filter_tasks_before_now: Option<bool>,
@@ -325,14 +336,25 @@ pub struct RuntimeCalendarToggles {
 pub struct CalendarConfig {
     pub timezone: String,
     pub week_start_monday: bool,
+    pub red_dot_limit: usize,
     pub task_list_limit: usize,
     pub task_list_window_days: i64,
     pub visibility_pending: bool,
     pub visibility_waiting: bool,
     pub visibility_completed: bool,
     pub visibility_deleted: bool,
+    pub de_emphasize_past_periods: bool,
     pub filter_before_now: bool,
     pub hide_past_markers: bool,
+    pub day_view_hour_start: u8,
+    pub day_view_hour_end: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CalendarMarkerKind {
+    ExternalCalendar,
+    KanbanBoard,
+    Unassigned,
 }
 
 #[derive(Debug, Clone)]
@@ -341,4 +363,7 @@ pub struct CalendarEntry {
     pub due_utc: chrono::DateTime<chrono::Utc>,
     pub label: String,
     pub color: String,
+    pub marker_kind: CalendarMarkerKind,
+    pub board_id: Option<String>,
+    pub source_id: Option<String>,
 }

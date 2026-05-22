@@ -8,23 +8,23 @@ mod tasks;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::NaiveDate;
 use eframe::egui::{self, Color32, Vec2};
 use eframe::{App, CreationContext, NativeOptions};
 use uuid::Uuid;
 
 use crate::calendar::{
-    calendar_title, entries_for_day, month_days, month_grid_start, shift_focus, visible_calendar_entries,
-    week_days,
+    calendar_title, entries_for_day, entries_for_month, month_days, month_grid_start, period_entries,
+    period_stats, quarter_months, shift_focus, should_show_entry_in_list, should_show_marker,
+    visible_calendar_entries, week_days, year_months,
 };
 use crate::persistence::PersistedUiState;
 use crate::runtime::RuntimeConfigService;
 use crate::services::{can_complete_task, IcsImportResult, TaskService};
 use crate::tags::{board_id_from_tags, set_single_tag_value, split_tags, BOARD_TAG_KEY};
 use crate::types::{
-    CalendarEntry, CalendarView, DueFilter, ImportedCalendarSource, KanbanBoard, PriorityFilter,
-    StatusFilter, TagSchema, TaskCreate, TaskDto, TaskFilters, TaskPatch, TaskPriority,
-    TaskStatus, TaskUpdateArgs, ThemeMode, WorkspaceTab,
+    DueFilter, ImportedCalendarSource, KanbanBoard, PriorityFilter, StatusFilter, TagSchema,
+    TaskCreate, TaskDto, TaskFilters, TaskPatch, TaskPriority, TaskStatus, TaskUpdateArgs,
+    ThemeMode, WorkspaceTab,
 };
 use self::kanban::apply_drop_to_tags;
 
@@ -588,28 +588,6 @@ fn next_lane<'a>(current: &'a str, columns: &'a [String]) -> &'a str {
     let index = columns.iter().position(|column| column == current).unwrap_or(0);
     let next = (index + 1) % columns.len().max(1);
     columns.get(next).map(String::as_str).unwrap_or(current)
-}
-
-fn current_period_entries(
-    entries: &[CalendarEntry],
-    view: CalendarView,
-    focus: NaiveDate,
-    timezone: chrono_tz::Tz,
-    monday_start: bool,
-) -> Vec<CalendarEntry> {
-    let days = match view {
-        CalendarView::Month => {
-            let start = month_grid_start(focus, monday_start);
-            month_days(start)
-        }
-        CalendarView::Week => week_days(focus, monday_start),
-        CalendarView::Day => vec![focus],
-    };
-    entries
-        .iter()
-        .filter(|entry| days.contains(&entry.due_utc.with_timezone(&timezone).date_naive()))
-        .cloned()
-        .collect()
 }
 
 fn parse_color(raw: &str) -> Color32 {

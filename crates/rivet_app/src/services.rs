@@ -584,14 +584,18 @@ mod tests {
             &CalendarConfig {
                 timezone: "UTC".to_string(),
                 week_start_monday: true,
+                red_dot_limit: 5,
                 task_list_limit: 20,
                 task_list_window_days: 30,
                 visibility_pending: true,
                 visibility_waiting: true,
                 visibility_completed: true,
                 visibility_deleted: true,
+                de_emphasize_past_periods: true,
                 filter_before_now: false,
                 hide_past_markers: false,
+                day_view_hour_start: 0,
+                day_view_hour_end: 23,
             },
             TagSchema {
                 version: Some(1),

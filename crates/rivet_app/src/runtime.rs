@@ -48,6 +48,22 @@ impl RuntimeConfigService {
             .parse::<Tz>()
             .with_context(|| format!("invalid timezone {timezone}"))?;
 
+        let day_view_hour_start = runtime
+            .calendar
+            .as_ref()
+            .and_then(|calendar| calendar.day_view.as_ref())
+            .and_then(|day_view| day_view.hour_start)
+            .unwrap_or(0)
+            .min(23);
+        let day_view_hour_end = runtime
+            .calendar
+            .as_ref()
+            .and_then(|calendar| calendar.day_view.as_ref())
+            .and_then(|day_view| day_view.hour_end)
+            .unwrap_or(23)
+            .min(23)
+            .max(day_view_hour_start);
+
         let calendar = CalendarConfig {
             timezone,
             week_start_monday: runtime
@@ -57,6 +73,12 @@ impl RuntimeConfigService {
                 .and_then(|policies| policies.week_start.as_ref())
                 .map(|value| value.eq_ignore_ascii_case("monday"))
                 .unwrap_or(false),
+            red_dot_limit: runtime
+                .calendar
+                .as_ref()
+                .and_then(|calendar| calendar.policies.as_ref())
+                .and_then(|policies| policies.red_dot_limit)
+                .unwrap_or(5),
             task_list_limit: runtime
                 .calendar
                 .as_ref()
@@ -93,6 +115,12 @@ impl RuntimeConfigService {
                 .and_then(|calendar| calendar.visibility.as_ref())
                 .and_then(|visibility| visibility.deleted)
                 .unwrap_or(true),
+            de_emphasize_past_periods: runtime
+                .calendar
+                .as_ref()
+                .and_then(|calendar| calendar.toggles.as_ref())
+                .and_then(|toggles| toggles.de_emphasize_past_periods)
+                .unwrap_or(true),
             filter_before_now: runtime
                 .calendar
                 .as_ref()
@@ -105,6 +133,8 @@ impl RuntimeConfigService {
                 .and_then(|calendar| calendar.toggles.as_ref())
                 .and_then(|toggles| toggles.hide_past_markers)
                 .unwrap_or(true),
+            day_view_hour_start,
+            day_view_hour_end,
         };
 
         let theme = resolve_theme_mode(&runtime);
