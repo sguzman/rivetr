@@ -375,6 +375,7 @@ fn render_year_view(
     let card_width = ((row_width - (PERIOD_CARD_GAP * 2.0)) / 3.0).max(10.0);
     for row in year_months(focus).chunks(3) {
         ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = PERIOD_CARD_GAP;
             for (index, month) in row.iter().enumerate() {
                 ui.allocate_ui_with_layout(
                     Vec2::new(card_width, YEAR_CARD_HEIGHT),
@@ -394,9 +395,6 @@ fn render_year_view(
                         );
                     },
                 );
-                if index < row.len() - 1 {
-                    ui.add_space(PERIOD_CARD_GAP);
-                }
             }
         });
         ui.add_space(12.0);
@@ -416,6 +414,7 @@ fn render_quarter_view(
     let row_width = ui.available_width();
     let card_width = ((row_width - (PERIOD_CARD_GAP * 2.0)) / 3.0).max(10.0);
     ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = PERIOD_CARD_GAP;
         let months = quarter_months(focus);
         for (index, month) in months.iter().enumerate() {
             ui.allocate_ui_with_layout(
@@ -436,9 +435,6 @@ fn render_quarter_view(
                     );
                 },
             );
-            if index < months.len() - 1 {
-                ui.add_space(PERIOD_CARD_GAP);
-            }
         }
     });
 }
