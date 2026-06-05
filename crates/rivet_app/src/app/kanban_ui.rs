@@ -55,8 +55,7 @@ impl RivetApp {
                     }
                 }
                 ui.separator();
-                ui.horizontal(|ui| {
-                    ui.text_edit_singleline(&mut self.board_editor.create_name);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Add").clicked() {
                         let name = self.board_editor.create_name.trim();
                         if !name.is_empty() {
@@ -74,11 +73,18 @@ impl RivetApp {
                             self.mark_ui_dirty();
                         }
                     }
+                    ui.add_sized(
+                        ui.available_size(),
+                        egui::TextEdit::singleline(&mut self.board_editor.create_name),
+                    );
                 });
                 if let Some(active_id) = active_board_id.as_deref() {
                     ui.separator();
                     ui.label("Rename active");
-                    ui.text_edit_singleline(&mut self.board_editor.rename_name);
+                    ui.add_sized(
+                        [ui.available_width(), 28.0],
+                        egui::TextEdit::singleline(&mut self.board_editor.rename_name),
+                    );
                     if ui.button("Rename").clicked()
                         && let Some(board) = self
                             .ui_state
