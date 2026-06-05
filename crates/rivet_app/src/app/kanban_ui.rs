@@ -28,7 +28,7 @@ impl RivetApp {
             .resizable(true)
             .default_width(260.0)
             .show(ctx, |ui| {
-                egui::ScrollArea::both().show(ui, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.heading("Boards");
                     for board in &board_list {
                         let selected = self.ui_state.active_board_id.as_deref() == Some(board.id.as_str());
