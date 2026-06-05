@@ -24,12 +24,11 @@ impl RivetApp {
         let active_board_id = self.ui_state.active_board_id.clone();
         let board_list = self.ui_state.kanban_boards.clone();
 
-        egui::SidePanel::left("kanban_sidebar_v2")
+        egui::SidePanel::left("kanban_sidebar_v3")
             .resizable(true)
             .default_width(260.0)
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.heading("Boards");
+                ui.heading("Boards");
                     for board in &board_list {
                         let selected = self.ui_state.active_board_id.as_deref() == Some(board.id.as_str());
                         let (drop_zone, dropped) = ui.dnd_drop_zone::<KanbanDragPayload, _>(
@@ -117,7 +116,6 @@ impl RivetApp {
                     ) {
                         self.mark_ui_dirty();
                     }
-                });
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
