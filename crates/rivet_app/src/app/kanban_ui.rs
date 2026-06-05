@@ -24,7 +24,7 @@ impl RivetApp {
         let active_board_id = self.ui_state.active_board_id.clone();
         let board_list = self.ui_state.kanban_boards.clone();
 
-        egui::SidePanel::left("kanban_sidebar")
+        egui::SidePanel::left("kanban_sidebar_v2")
             .resizable(true)
             .default_width(260.0)
             .show(ctx, |ui| {
