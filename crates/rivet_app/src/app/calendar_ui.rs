@@ -47,6 +47,7 @@ impl RivetApp {
             .collect::<Vec<_>>();
         let stats = period_stats(&period_all);
         let mut navigate_to_entry: Option<CalendarEntry> = None;
+        let mut navigate_to_month: Option<chrono::NaiveDate> = None;
 
         egui::TopBottomPanel::top("calendar_toolbar").show(ctx, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -159,7 +160,7 @@ impl RivetApp {
                                         today,
                                         &self.runtime.calendar,
                                         now_utc,
-                                        &mut navigate_to_entry,
+                                        &mut navigate_to_month,
                                     ),
                                     CalendarView::Quarter => render_quarter_view(
                                         ui,
@@ -169,7 +170,7 @@ impl RivetApp {
                                         today,
                                         &self.runtime.calendar,
                                         now_utc,
-                                        &mut navigate_to_entry,
+                                        &mut navigate_to_month,
                                     ),
                                     CalendarView::Month => render_month_view(
                                         ui,
@@ -207,6 +208,12 @@ impl RivetApp {
                 });
             });
         });
+
+        if let Some(month) = navigate_to_month {
+            self.ui_state.set_focus_date(month);
+            self.ui_state.calendar_view = CalendarView::Month;
+            self.mark_ui_dirty();
+        }
 
         if let Some(entry) = navigate_to_entry {
             self.focus_calendar_entry(&entry, timezone);
@@ -369,7 +376,7 @@ fn render_year_view(
     today: chrono::NaiveDate,
     config: &crate::types::CalendarConfig,
     now_utc: chrono::DateTime<Utc>,
-    navigate_to_entry: &mut Option<CalendarEntry>,
+    navigate_to_month: &mut Option<chrono::NaiveDate>,
 ) {
     let row_width = ui.available_width();
     let card_width = ((row_width - (PERIOD_CARD_GAP * 2.0)) / 3.0).max(10.0);
@@ -391,7 +398,7 @@ fn render_year_view(
                             today,
                             config,
                             now_utc,
-                            navigate_to_entry,
+                            navigate_to_month,
                         );
                     },
                 );
@@ -409,7 +416,7 @@ fn render_quarter_view(
     today: chrono::NaiveDate,
     config: &crate::types::CalendarConfig,
     now_utc: chrono::DateTime<Utc>,
-    navigate_to_entry: &mut Option<CalendarEntry>,
+    navigate_to_month: &mut Option<chrono::NaiveDate>,
 ) {
     let row_width = ui.available_width();
     let card_width = ((row_width - (PERIOD_CARD_GAP * 2.0)) / 3.0).max(10.0);
@@ -431,7 +438,7 @@ fn render_quarter_view(
                         today,
                         config,
                         now_utc,
-                        navigate_to_entry,
+                        navigate_to_month,
                     );
                 },
             );
@@ -726,7 +733,7 @@ fn period_card(
     today: chrono::NaiveDate,
     config: &crate::types::CalendarConfig,
     now_utc: chrono::DateTime<Utc>,
-    navigate_to_entry: &mut Option<CalendarEntry>,
+    navigate_to_month: &mut Option<chrono::NaiveDate>,
 ) {
     let is_current = month.year() == today.year() && month.month() == today.month();
     let current_month_start = chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
@@ -759,8 +766,8 @@ fn period_card(
             })
             .response
             .interact(Sense::click());
-        if response.clicked() && let Some(first) = entries.first() {
-            *navigate_to_entry = Some(first.clone());
+        if response.clicked() {
+            *navigate_to_month = Some(month);
         }
     });
 }

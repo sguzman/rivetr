@@ -73,18 +73,12 @@ impl RivetApp {
                             self.mark_ui_dirty();
                         }
                     }
-                    ui.add_sized(
-                        ui.available_size(),
-                        egui::TextEdit::singleline(&mut self.board_editor.create_name),
-                    );
+                    ui.add(egui::TextEdit::singleline(&mut self.board_editor.create_name).desired_width(f32::INFINITY));
                 });
                 if let Some(active_id) = active_board_id.as_deref() {
                     ui.separator();
                     ui.label("Rename active");
-                    ui.add_sized(
-                        [ui.available_width(), 28.0],
-                        egui::TextEdit::singleline(&mut self.board_editor.rename_name),
-                    );
+                    ui.add(egui::TextEdit::singleline(&mut self.board_editor.rename_name).desired_width(f32::INFINITY));
                     if ui.button("Rename").clicked()
                         && let Some(board) = self
                             .ui_state
