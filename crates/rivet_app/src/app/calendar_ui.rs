@@ -372,9 +372,9 @@ fn render_year_view(
     navigate_to_entry: &mut Option<CalendarEntry>,
 ) {
     let row_width = ui.available_width();
-    let card_width = ((row_width - (PERIOD_CARD_GAP * 2.0)) / 3.0).max(160.0);
+    let card_width = ((row_width - (PERIOD_CARD_GAP * 2.0)) / 3.0).max(10.0);
     for row in year_months(focus).chunks(3) {
-        ui.horizontal(|ui| {
+        ui.horizontal_top(|ui| {
             for (index, month) in row.iter().enumerate() {
                 ui.allocate_ui_with_layout(
                     Vec2::new(card_width, YEAR_CARD_HEIGHT),
@@ -414,8 +414,8 @@ fn render_quarter_view(
     navigate_to_entry: &mut Option<CalendarEntry>,
 ) {
     let row_width = ui.available_width();
-    let card_width = ((row_width - (PERIOD_CARD_GAP * 2.0)) / 3.0).max(160.0);
-    ui.horizontal(|ui| {
+    let card_width = ((row_width - (PERIOD_CARD_GAP * 2.0)) / 3.0).max(10.0);
+    ui.horizontal_top(|ui| {
         let months = quarter_months(focus);
         for (index, month) in months.iter().enumerate() {
             ui.allocate_ui_with_layout(
