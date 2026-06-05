@@ -28,94 +28,96 @@ impl RivetApp {
             .resizable(true)
             .default_width(260.0)
             .show(ctx, |ui| {
-                ui.heading("Boards");
-                for board in &board_list {
-                    let selected = self.ui_state.active_board_id.as_deref() == Some(board.id.as_str());
-                    let (drop_zone, dropped) = ui.dnd_drop_zone::<KanbanDragPayload, _>(
-                        egui::Frame::group(ui.style()).inner_margin(6.0),
-                        |ui| {
-                            let response = ui.selectable_label(selected, &board.name);
-                            if response.clicked() {
+                egui::ScrollArea::both().show(ui, |ui| {
+                    ui.heading("Boards");
+                    for board in &board_list {
+                        let selected = self.ui_state.active_board_id.as_deref() == Some(board.id.as_str());
+                        let (drop_zone, dropped) = ui.dnd_drop_zone::<KanbanDragPayload, _>(
+                            egui::Frame::group(ui.style()).inner_margin(6.0),
+                            |ui| {
+                                let response = ui.selectable_label(selected, &board.name);
+                                if response.clicked() {
+                                    self.ui_state.active_board_id = Some(board.id.clone());
+                                    self.board_editor.rename_name = board.name.clone();
+                                    self.mark_ui_dirty();
+                                }
+                                ui.small(RichText::new(&board.color).color(parse_color(&board.color)));
+                            },
+                        );
+                        if drop_zone.response.hovered() {
+                            ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                        }
+                        if let Some(payload) = dropped {
+                            self.move_task_to_kanban_target(
+                                payload.task_id,
+                                Some(&board.id),
+                                Some(&payload.from_lane),
+                            );
+                        }
+                    }
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut self.board_editor.create_name).desired_width(140.0));
+                        if ui.button("Add").clicked() {
+                            let name = self.board_editor.create_name.trim();
+                            if !name.is_empty() {
+                                let board = KanbanBoard {
+                                    id: slug(name),
+                                    name: name.to_string(),
+                                    color: next_board_color(&self.ui_state.kanban_boards),
+                                };
                                 self.ui_state.active_board_id = Some(board.id.clone());
-                                self.board_editor.rename_name = board.name.clone();
+                                self.ui_state.kanban_boards.push(board);
+                                self.ui_state
+                                    .kanban_boards
+                                    .sort_by(|left, right| left.name.cmp(&right.name));
+                                self.board_editor.create_name.clear();
                                 self.mark_ui_dirty();
                             }
-                            ui.small(RichText::new(&board.color).color(parse_color(&board.color)));
-                        },
-                    );
-                    if drop_zone.response.hovered() {
-                        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
-                    }
-                    if let Some(payload) = dropped {
-                        self.move_task_to_kanban_target(
-                            payload.task_id,
-                            Some(&board.id),
-                            Some(&payload.from_lane),
-                        );
-                    }
-                }
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.board_editor.create_name).desired_width(140.0));
-                    if ui.button("Add").clicked() {
-                        let name = self.board_editor.create_name.trim();
-                        if !name.is_empty() {
-                            let board = KanbanBoard {
-                                id: slug(name),
-                                name: name.to_string(),
-                                color: next_board_color(&self.ui_state.kanban_boards),
-                            };
-                            self.ui_state.active_board_id = Some(board.id.clone());
-                            self.ui_state.kanban_boards.push(board);
-                            self.ui_state
+                        }
+                    });
+                    if let Some(active_id) = active_board_id.as_deref() {
+                        ui.separator();
+                        ui.label("Rename active");
+                        ui.add(egui::TextEdit::singleline(&mut self.board_editor.rename_name).desired_width(190.0));
+                        if ui.button("Rename").clicked()
+                            && let Some(board) = self
+                                .ui_state
                                 .kanban_boards
-                                .sort_by(|left, right| left.name.cmp(&right.name));
-                            self.board_editor.create_name.clear();
+                                .iter_mut()
+                                .find(|board| board.id == active_id)
+                        {
+                            board.name = self.board_editor.rename_name.trim().to_string();
+                            self.mark_ui_dirty();
+                        }
+                        if ui.button("Delete Board").clicked() && self.ui_state.kanban_boards.len() > 1 {
+                            self.ui_state.kanban_boards.retain(|board| board.id != active_id);
+                            self.ui_state.active_board_id = self
+                                .ui_state
+                                .kanban_boards
+                                .first()
+                                .map(|board| board.id.clone());
                             self.mark_ui_dirty();
                         }
                     }
-                });
-                if let Some(active_id) = active_board_id.as_deref() {
                     ui.separator();
-                    ui.label("Rename active");
-                    ui.add(egui::TextEdit::singleline(&mut self.board_editor.rename_name).desired_width(190.0));
-                    if ui.button("Rename").clicked()
-                        && let Some(board) = self
-                            .ui_state
-                            .kanban_boards
-                            .iter_mut()
-                            .find(|board| board.id == active_id)
+                    if ui
+                        .checkbox(&mut self.ui_state.kanban_compact, "Compact cards")
+                        .changed()
                     {
-                        board.name = self.board_editor.rename_name.trim().to_string();
                         self.mark_ui_dirty();
                     }
-                    if ui.button("Delete Board").clicked() && self.ui_state.kanban_boards.len() > 1 {
-                        self.ui_state.kanban_boards.retain(|board| board.id != active_id);
-                        self.ui_state.active_board_id = self
-                            .ui_state
-                            .kanban_boards
-                            .first()
-                            .map(|board| board.id.clone());
+                    ui.separator();
+                    if filter_bar(
+                        ui,
+                        &mut self.ui_state.kanban_filters,
+                        &projects,
+                        &tags,
+                        Some(egui::Id::new(KANBAN_SEARCH_ID)),
+                    ) {
                         self.mark_ui_dirty();
                     }
-                }
-                ui.separator();
-                if ui
-                    .checkbox(&mut self.ui_state.kanban_compact, "Compact cards")
-                    .changed()
-                {
-                    self.mark_ui_dirty();
-                }
-                ui.separator();
-                if filter_bar(
-                    ui,
-                    &mut self.ui_state.kanban_filters,
-                    &projects,
-                    &tags,
-                    Some(egui::Id::new(KANBAN_SEARCH_ID)),
-                ) {
-                    self.mark_ui_dirty();
-                }
+                });
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
