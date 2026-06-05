@@ -2,7 +2,7 @@ use postgres::{Client, NoTls};
 
 #[test]
 fn inspect_db() {
-    let mut client = Client::connect("host=192.168.0.113 port=5432 user=admin password=admin dbname=data", NoTls).unwrap();
+    let mut client = Client::connect("host=192.168.0.113 port=5432 user=admin password=admin dbname=postgres", NoTls).unwrap();
     
     // Check all tables
     let rows = client.query(
@@ -10,7 +10,7 @@ fn inspect_db() {
         &[]
     ).unwrap();
     
-    println!("--- ALL TABLES ---");
+    println!("--- ALL TABLES IN POSTGRES ---");
     for row in rows {
         let schema: String = row.get(0);
         let table_name: String = row.get(1);

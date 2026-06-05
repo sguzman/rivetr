@@ -1,5 +1,6 @@
 mod calendar_ui;
 mod dialogs;
+mod dictionary_ui;
 mod kanban;
 mod kanban_ui;
 mod keyboard;
@@ -70,6 +71,7 @@ struct RivetApp {
     import_busy: bool,
     show_shortcuts: bool,
     dirty_ui_state: bool,
+    dictionary_ui: dictionary_ui::DictionaryUi,
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +110,8 @@ impl RivetApp {
             .and_then(|id| ui_state.kanban_boards.iter().find(|board| &board.id == id))
             .map(|board| board.name.clone())
             .unwrap_or_default();
+            
+        let dictionary_config = runtime.dictionary.clone();
 
         Ok(Self {
             runtime,
@@ -128,6 +132,7 @@ impl RivetApp {
             import_busy: false,
             show_shortcuts: false,
             dirty_ui_state: false,
+            dictionary_ui: dictionary_ui::DictionaryUi::new(dictionary_config),
         })
     }
 
@@ -433,6 +438,11 @@ impl App for RivetApp {
             WorkspaceTab::Tasks => self.ui_tasks(ctx),
             WorkspaceTab::Kanban => self.ui_kanban(ctx),
             WorkspaceTab::Calendar => self.ui_calendar(ctx),
+            WorkspaceTab::Dictionary => {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    self.dictionary_ui.render(ui, ctx);
+                });
+            }
         }
         self.ui_task_editor(ctx);
         self.persist_ui_state();

@@ -4,13 +4,14 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use chrono_tz::Tz;
 
-use crate::types::{CalendarConfig, RuntimeConfig, TagSchema, ThemeMode};
+use crate::types::{CalendarConfig, RuntimeConfig, RuntimeDictionaryConfig, TagSchema, ThemeMode};
 
 pub struct RuntimeConfigService {
     pub config_path: Option<PathBuf>,
     pub tag_schema: TagSchema,
     pub calendar: CalendarConfig,
     pub theme: ThemeMode,
+    pub dictionary: Option<RuntimeDictionaryConfig>,
 }
 
 impl RuntimeConfigService {
@@ -28,6 +29,7 @@ impl RuntimeConfigService {
                 time: None,
                 ui: None,
                 calendar: None,
+                dictionary: None,
             }
         };
 
@@ -144,6 +146,7 @@ impl RuntimeConfigService {
             tag_schema,
             calendar,
             theme,
+            dictionary: runtime.dictionary.clone(),
         })
     }
 }

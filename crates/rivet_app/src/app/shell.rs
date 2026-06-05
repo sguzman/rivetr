@@ -30,8 +30,9 @@ impl RivetApp {
             super::keyboard::ShortcutAction::FocusSearch => {
                 let id = match self.ui_state.active_tab {
                     WorkspaceTab::Tasks => egui::Id::new(TASK_SEARCH_ID),
-                    WorkspaceTab::Kanban => egui::Id::new(KANBAN_SEARCH_ID),
+                    WorkspaceTab::Kanban => return,
                     WorkspaceTab::Calendar => return,
+                    WorkspaceTab::Dictionary => return,
                 };
                 ctx.memory_mut(|memory| memory.request_focus(id));
             }

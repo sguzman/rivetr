@@ -7,16 +7,18 @@ pub enum WorkspaceTab {
     Tasks,
     Kanban,
     Calendar,
+    Dictionary,
 }
 
 impl WorkspaceTab {
-    pub const ALL: [Self; 3] = [Self::Tasks, Self::Kanban, Self::Calendar];
+    pub const ALL: [Self; 4] = [Self::Tasks, Self::Kanban, Self::Calendar, Self::Dictionary];
 
     pub const fn label(self) -> &'static str {
         match self {
             Self::Tasks => "Tasks",
             Self::Kanban => "Kanban",
             Self::Calendar => "Calendar",
+            Self::Dictionary => "Dictionary",
         }
     }
 }
@@ -270,6 +272,7 @@ pub struct RuntimeConfig {
     pub time: Option<RuntimeTimeConfig>,
     pub ui: Option<RuntimeUiConfig>,
     pub calendar: Option<RuntimeCalendarConfig>,
+    pub dictionary: Option<RuntimeDictionaryConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -330,6 +333,29 @@ pub struct RuntimeCalendarToggles {
     pub de_emphasize_past_periods: Option<bool>,
     pub filter_tasks_before_now: Option<bool>,
     pub hide_past_markers: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeDictionaryConfig {
+    pub enabled: Option<bool>,
+    pub default_language: Option<String>,
+    pub max_results: Option<usize>,
+    pub search_mode: Option<String>,
+    pub postgres: Option<RuntimePostgresConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimePostgresConfig {
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub user: Option<String>,
+    pub password: Option<String>,
+    pub database: Option<String>,
+    pub schema: Option<String>,
+    pub sslmode: Option<String>,
+    pub connect_timeout_secs: Option<u64>,
+    pub max_connection_retries: Option<u32>,
+    pub retry_backoff_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
