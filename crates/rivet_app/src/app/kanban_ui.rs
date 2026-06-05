@@ -24,7 +24,19 @@ impl RivetApp {
         let active_board_id = self.ui_state.active_board_id.clone();
         let board_list = self.ui_state.kanban_boards.clone();
 
-        egui::SidePanel::left("kanban_sidebar_v3")
+        egui::TopBottomPanel::top("kanban_filters").show(ctx, |ui| {
+            if filter_bar(
+                ui,
+                &mut self.ui_state.kanban_filters,
+                &projects,
+                &tags,
+                Some(egui::Id::new(KANBAN_SEARCH_ID)),
+            ) {
+                self.mark_ui_dirty();
+            }
+        });
+
+        egui::SidePanel::left("kanban_sidebar_v4")
             .resizable(true)
             .default_width(260.0)
             .show(ctx, |ui| {
@@ -55,7 +67,7 @@ impl RivetApp {
                         }
                     }
                     ui.separator();
-                    ui.horizontal_wrapped(|ui| {
+                    ui.horizontal(|ui| {
                         ui.add(egui::TextEdit::singleline(&mut self.board_editor.create_name).desired_width(140.0));
                         if ui.button("Add").clicked() {
                             let name = self.board_editor.create_name.trim();
@@ -104,16 +116,6 @@ impl RivetApp {
                         .checkbox(&mut self.ui_state.kanban_compact, "Compact cards")
                         .changed()
                     {
-                        self.mark_ui_dirty();
-                    }
-                    ui.separator();
-                    if filter_bar(
-                        ui,
-                        &mut self.ui_state.kanban_filters,
-                        &projects,
-                        &tags,
-                        Some(egui::Id::new(KANBAN_SEARCH_ID)),
-                    ) {
                         self.mark_ui_dirty();
                     }
             });
