@@ -56,7 +56,7 @@ impl RivetApp {
                         }
                     }
                     ui.separator();
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.add(egui::TextEdit::singleline(&mut self.board_editor.create_name).desired_width(140.0));
                         if ui.button("Add").clicked() {
                             let name = self.board_editor.create_name.trim();
