@@ -18,7 +18,7 @@ use uuid::Uuid;
 use crate::runtime::resolve_gui_data_dir;
 use crate::tags::{
     ensure_default_kanban_lane_tag, first_tag_value, normalize_tag_value, push_tag_unique,
-    task_has_tag_value, CAL_COLOR_TAG_KEY, CAL_EVENT_TAG_KEY, CAL_SOURCE_TAG_KEY,
+    task_has_tag_value, CAL_COLOR_TAG_KEY, CAL_EVENT_TAG_KEY, CAL_SOURCE_TAG_KEY, DEFAULT_CALENDAR_COLOR,
 };
 use crate::types::{
     CalendarConfig, ImportedCalendarSource, TagSchema, TaskCreate, TaskDto, TaskPatch,
@@ -49,6 +49,35 @@ struct ExternalCalendarEvent {
     description: String,
     due_rfc3339: String,
     tags: Vec<String>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct RicsPayload {
+    pub sources: std::collections::HashMap<String, RicsSource>,
+    pub events: std::collections::HashMap<String, RicsEvent>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct RicsSource {
+    pub key: String,
+    pub name: String,
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct RicsEvent {
+    pub uid: String,
+    pub source_key: String,
+    pub title: String,
+    pub description: Option<String>,
+    pub time: RicsTime,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct RicsTime {
+    pub kind: String,
+    pub start: String,
 }
 
 impl TaskService {
@@ -237,6 +266,63 @@ impl TaskService {
             deleted,
             remote_events,
         })
+    }
+
+    pub fn import_json_bundle(&self, path: &Path) -> anyhow::Result<(usize, Vec<ImportedCalendarSource>)> {
+        let file = fs::File::open(path)
+            .with_context(|| format!("failed to open JSON file {}", path.display()))?;
+        let reader = BufReader::new(file);
+        let payload: RicsPayload = serde_json::from_reader(reader)
+            .context("failed to parse JSON bundle")?;
+
+        let now = Utc::now();
+        let mut total_created = 0;
+        let mut out_sources = Vec::new();
+
+        for (source_key, rics_source) in payload.sources {
+            let mut source_events = Vec::new();
+            for e in payload.events.values().filter(|e| e.source_key == source_key) {
+                let due = match e.time.kind.as_str() {
+                    "date_time" => e.time.start.clone(),
+                    "date" => format!("{}T00:00:00Z", e.time.start),
+                    _ => e.time.start.clone(),
+                };
+                let mut tags = vec![
+                    format!("{CAL_SOURCE_TAG_KEY}:{}", normalize_tag_value(&rics_source.key)),
+                    format!("{CAL_EVENT_TAG_KEY}:{}", normalize_tag_value(&e.uid)),
+                    format!("{CAL_COLOR_TAG_KEY}:{}", DEFAULT_CALENDAR_COLOR.trim_start_matches('#')),
+                ];
+                for t in &e.tags {
+                    tags.push(format!("cat:{}", normalize_tag_value(t)));
+                }
+
+                source_events.push(ExternalCalendarEvent {
+                    uid: e.uid.clone(),
+                    title: e.title.clone(),
+                    description: e.description.clone().unwrap_or_default(),
+                    due_rfc3339: due,
+                    tags,
+                });
+            }
+
+            if source_events.is_empty() {
+                continue;
+            }
+
+            let source = ImportedCalendarSource {
+                id: normalize_tag_value(&rics_source.key),
+                name: rics_source.name.clone(),
+                color: DEFAULT_CALENDAR_COLOR.to_string(),
+                path: path.to_path_buf(),
+                last_imported_at: now.to_rfc3339(),
+            };
+
+            let (created, _, _) = self.apply_imported_events(&source, source_events)?;
+            out_sources.push(source);
+            total_created += created;
+        }
+
+        Ok((total_created, out_sources))
     }
 
     fn apply_imported_events(

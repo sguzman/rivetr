@@ -26,6 +26,8 @@ pub struct PersistedUiState {
     #[serde(default)]
     pub calendar_show_right_panel: bool,
     pub imported_calendars: Vec<ImportedCalendarSource>,
+    #[serde(default)]
+    pub calendar_tag_filters: std::collections::BTreeSet<String>,
 }
 
 fn default_true() -> bool {
@@ -52,6 +54,7 @@ impl Default for PersistedUiState {
             calendar_show_left_panel: true,
             calendar_show_right_panel: false,
             imported_calendars: Vec::new(),
+            calendar_tag_filters: std::collections::BTreeSet::new(),
         }
     }
 }

@@ -32,6 +32,7 @@ impl RivetApp {
             &self.ui_state.kanban_boards,
             &self.runtime.calendar,
             now_utc,
+            &self.ui_state.calendar_tag_filters,
         );
         let period_all = period_entries(
             &entries,
@@ -233,50 +234,107 @@ fn render_left_panel(app: &mut RivetApp, ui: &mut egui::Ui, focus: chrono::Naive
     ui.add_space(10.0);
 
     let legend_height = 110.0;
-    let remaining_height = (ui.available_height() - legend_height - 10.0).max(220.0);
+    let remaining_height = (ui.available_height() - legend_height - 180.0).max(180.0);
     egui::Frame::group(ui.style())
         .inner_margin(12.0)
         .show(ui, |ui| {
             ui.set_min_height(remaining_height);
             ui.heading("Imported Calendars");
-            if ui
-                .add_enabled(!app.import_busy, egui::Button::new("Import ICS"))
-                .clicked()
-                && let Some(path) = rfd::FileDialog::new().add_filter("ICS", &["ics"]).pick_file()
-            {
-                app.import_ics(path);
-            }
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(!app.import_busy, egui::Button::new("Import ICS"))
+                    .clicked()
+                    && let Some(path) = rfd::FileDialog::new().add_filter("ICS", &["ics"]).pick_file()
+                {
+                    app.import_ics(path);
+                }
+                if ui
+                    .add_enabled(!app.import_busy, egui::Button::new("Import JSON"))
+                    .clicked()
+                    && let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file()
+                {
+                    app.import_json_bundle(path);
+                }
+            });
             ui.add_space(8.0);
-            egui::ScrollArea::vertical()
-                .max_height((ui.available_height() - 4.0).max(160.0))
-                .show(ui, |ui| {
-                    if app.ui_state.imported_calendars.is_empty() {
-                        ui.label(RichText::new("No imported calendars yet.").weak());
-                    }
-                    let calendars = app.ui_state.imported_calendars.clone();
-                    for source in calendars {
-                        egui::Frame::group(ui.style())
-                            .fill(ui.visuals().faint_bg_color)
-                            .corner_radius(CornerRadius::same(12))
-                            .inner_margin(10.0)
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    paint_marker(ui, parse_color(&source.color), CalendarMarkerKind::ExternalCalendar, 10.0);
-                                    ui.label(RichText::new(&source.name).strong());
+            if app.ui_state.imported_calendars.is_empty() {
+                ui.label(RichText::new("No imported calendars yet.").weak());
+            } else {
+                let calendars = app.ui_state.imported_calendars.clone();
+                let row_height = 80.0;
+                egui::ScrollArea::vertical()
+                    .max_height((ui.available_height() - 4.0).max(120.0))
+                    .show_rows(ui, row_height, calendars.len(), |ui, row_range| {
+                        for index in row_range {
+                            let source = &calendars[index];
+                            egui::Frame::group(ui.style())
+                                .fill(ui.visuals().faint_bg_color)
+                                .corner_radius(CornerRadius::same(12))
+                                .inner_margin(10.0)
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        paint_marker(ui, parse_color(&source.color), CalendarMarkerKind::ExternalCalendar, 10.0);
+                                        ui.label(RichText::new(&source.name).strong());
+                                    });
+                                    ui.small(source.path.display().to_string());
+                                    ui.small(format!("Imported {}", source.last_imported_at));
+                                    ui.add_space(4.0);
+                                    if ui
+                                        .add_enabled(!app.import_busy, egui::Button::new("Re-import"))
+                                        .clicked()
+                                    {
+                                        app.reimport_calendar(source.clone());
+                                    }
                                 });
-                                ui.small(source.path.display().to_string());
-                                ui.small(format!("Imported {}", source.last_imported_at));
-                                ui.add_space(4.0);
-                                if ui
-                                    .add_enabled(!app.import_busy, egui::Button::new("Re-import"))
-                                    .clicked()
-                                {
-                                    app.reimport_calendar(source.clone());
-                                }
-                            });
-                        ui.add_space(6.0);
+                            ui.add_space(6.0);
+                        }
+                    });
+            }
+        });
+
+    ui.add_space(10.0);
+    egui::Frame::group(ui.style())
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.heading("Filters");
+            ui.add_space(8.0);
+            let mut all_tags = std::collections::BTreeSet::new();
+            for entry in entries {
+                for tag in &entry.task.tags {
+                    if tag.starts_with("cat:") {
+                        all_tags.insert(tag.clone());
                     }
-                });
+                }
+            }
+            if all_tags.is_empty() {
+                ui.label(RichText::new("No categories available.").weak());
+            } else {
+                egui::ScrollArea::vertical()
+                    .max_height(100.0)
+                    .show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            for tag in all_tags {
+                                let label = tag.trim_start_matches("cat:");
+                                let is_active = app.ui_state.calendar_tag_filters.contains(&tag);
+                                if ui.selectable_label(is_active, label).clicked() {
+                                    if is_active {
+                                        app.ui_state.calendar_tag_filters.remove(&tag);
+                                    } else {
+                                        app.ui_state.calendar_tag_filters.insert(tag);
+                                    }
+                                    app.mark_ui_dirty();
+                                }
+                            }
+                        });
+                    });
+            }
+            if !app.ui_state.calendar_tag_filters.is_empty() {
+                ui.add_space(8.0);
+                if ui.button("Clear Filters").clicked() {
+                    app.ui_state.calendar_tag_filters.clear();
+                    app.mark_ui_dirty();
+                }
+            }
         });
 
     ui.add_space(10.0);
@@ -383,7 +441,7 @@ fn render_year_view(
     for row in year_months(focus).chunks(3) {
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = PERIOD_CARD_GAP;
-            for (index, month) in row.iter().enumerate() {
+            for month in row {
                 ui.allocate_ui_with_layout(
                     Vec2::new(card_width, YEAR_CARD_HEIGHT),
                     Layout::top_down(Align::Min),
@@ -423,7 +481,7 @@ fn render_quarter_view(
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = PERIOD_CARD_GAP;
         let months = quarter_months(focus);
-        for (index, month) in months.iter().enumerate() {
+        for month in &months {
             ui.allocate_ui_with_layout(
                 Vec2::new(card_width, QUARTER_CARD_HEIGHT),
                 Layout::top_down(Align::Min),
@@ -509,7 +567,7 @@ fn render_month_column(
                         })
                         .inner;
                     if clicked {
-                        *navigate_to_entry = Some(entry.clone());
+                        *navigate_to_entry = Some((*entry).clone());
                     }
                 }
             })
@@ -621,8 +679,11 @@ fn render_week_view(
                             })
                             .inner;
                         if clicked {
-                            *navigate_to_entry = Some(entry.clone());
+                            *navigate_to_entry = Some((*entry).clone());
                         }
+                    }
+                    if day_entries.len() > 5 {
+                        ui.small(RichText::new(format!("+ {} more", day_entries.len() - 5)).weak());
                     }
                 });
         }
@@ -682,7 +743,8 @@ fn render_day_view(
                                             if hour_entries.is_empty() {
                                                 ui.small(RichText::new("No items").weak());
                                             } else {
-                                                for entry in hour_entries {
+                                                let limit = 8;
+                                                for entry in hour_entries.iter().take(limit) {
                                                     let color = if should_show_entry_in_list(entry, config, now_utc) {
                                                         parse_color(&entry.color)
                                                     } else {
@@ -706,11 +768,15 @@ fn render_day_view(
                                                         })
                                                         .inner;
                                                     if clicked {
-                                                        *navigate_to_entry = Some(entry.clone());
+                                                        *navigate_to_entry = Some((*entry).clone());
                                                     }
                                                     if !entry.task.description.is_empty() {
                                                         ui.small(truncate(&entry.task.description, 90));
                                                     }
+                                                }
+                                                if hour_entries.len() > limit {
+                                                    ui.add_space(4.0);
+                                                    ui.small(RichText::new(format!("+ {} more events...", hour_entries.len() - limit)).weak());
                                                 }
                                             }
                                         });

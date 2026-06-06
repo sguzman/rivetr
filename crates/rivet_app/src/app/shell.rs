@@ -1,8 +1,7 @@
 use eframe::egui::{self, Color32, RichText};
 
 use super::{
-    apply_theme, primary_modifier_label, shortcut_row, BulkAction, RivetApp, KANBAN_SEARCH_ID,
-    TASK_SEARCH_ID,
+    apply_theme, primary_modifier_label, shortcut_row, BulkAction, RivetApp, TASK_SEARCH_ID,
 };
 use crate::types::{TaskDto, ThemeMode, WorkspaceTab};
 

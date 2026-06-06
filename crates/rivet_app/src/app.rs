@@ -360,6 +360,28 @@ impl RivetApp {
         }
     }
 
+    pub fn import_json_bundle(&mut self, path: std::path::PathBuf) {
+        self.import_busy = true;
+        self.set_message(format!("Importing JSON bundle {}…", path.display()));
+        match self.service.import_json_bundle(&path) {
+            Ok((created, sources)) => {
+                self.import_busy = false;
+                self.set_message(format!("Imported {} items from JSON bundle", created));
+                for source in sources {
+                    self.ui_state.imported_calendars.retain(|s| s.id != source.id);
+                    self.ui_state.imported_calendars.push(source);
+                }
+                self.ui_state.imported_calendars.sort_by(|left, right| left.name.cmp(&right.name));
+                self.refresh_tasks();
+                self.mark_ui_dirty();
+            }
+            Err(error) => {
+                self.import_busy = false;
+                self.set_error(error);
+            }
+        }
+    }
+
     fn finish_import(&mut self, result: IcsImportResult) {
         self.ui_state
             .imported_calendars

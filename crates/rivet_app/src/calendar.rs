@@ -11,6 +11,7 @@ pub fn visible_calendar_entries(
     boards: &[KanbanBoard],
     config: &CalendarConfig,
     _now_utc: DateTime<Utc>,
+    active_tags: &std::collections::BTreeSet<String>,
 ) -> Vec<CalendarEntry> {
     let timezone = config
         .timezone
@@ -20,6 +21,10 @@ pub fn visible_calendar_entries(
         .iter()
         .filter_map(|task| task_to_entry(task, boards, timezone))
         .filter(|entry| visibility_allows(config, entry.task.status))
+        .filter(|entry| {
+            active_tags.is_empty()
+                || entry.task.tags.iter().any(|t| active_tags.contains(t))
+        })
         .collect::<Vec<_>>();
     entries.sort_by_key(|entry| entry.due_utc);
     entries
@@ -301,7 +306,7 @@ mod tests {
             day_view_hour_start: 0,
             day_view_hour_end: 23,
         };
-        let entries = visible_calendar_entries(&[task], &[], &config, Utc::now());
+        let entries = visible_calendar_entries(&[task], &[], &config, Utc::now(), &std::collections::BTreeSet::new());
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].marker_kind, CalendarMarkerKind::ExternalCalendar);
     }
