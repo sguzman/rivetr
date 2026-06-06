@@ -8,10 +8,12 @@ pub enum WorkspaceTab {
     Kanban,
     Calendar,
     Dictionary,
+    Contacts,
+    Map,
 }
 
 impl WorkspaceTab {
-    pub const ALL: [Self; 4] = [Self::Tasks, Self::Kanban, Self::Calendar, Self::Dictionary];
+    pub const ALL: [Self; 6] = [Self::Tasks, Self::Kanban, Self::Calendar, Self::Dictionary, Self::Contacts, Self::Map];
 
     pub const fn label(self) -> &'static str {
         match self {
@@ -19,6 +21,8 @@ impl WorkspaceTab {
             Self::Kanban => "Kanban",
             Self::Calendar => "Calendar",
             Self::Dictionary => "Dictionary",
+            Self::Contacts => "Contacts",
+            Self::Map => "Map",
         }
     }
 }

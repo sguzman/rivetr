@@ -33,6 +33,8 @@ impl RivetApp {
                     WorkspaceTab::Kanban => return,
                     WorkspaceTab::Calendar => return,
                     WorkspaceTab::Dictionary => return,
+                    WorkspaceTab::Contacts => return,
+                    WorkspaceTab::Map => return,
                 };
                 ctx.memory_mut(|memory| memory.request_focus(id));
             }

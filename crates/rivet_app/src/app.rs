@@ -6,6 +6,8 @@ mod kanban_ui;
 mod keyboard;
 mod shell;
 mod tasks;
+mod contacts_ui;
+mod map_ui;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -441,6 +443,18 @@ impl App for RivetApp {
             WorkspaceTab::Dictionary => {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     self.dictionary_ui.render(ui, ctx);
+                });
+            }
+            WorkspaceTab::Contacts => {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.heading("Contacts");
+                    ui.label("Contacts workspace coming soon...");
+                });
+            }
+            WorkspaceTab::Map => {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.heading("Map");
+                    ui.label("Map workspace coming soon...");
                 });
             }
         }
